@@ -1,0 +1,59 @@
+# --- Secrets and credentials (never commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+secrets/
+*.secret
+
+# --- Private / confidential data (keep OUTSIDE the repo when possible) ---
+private/
+_private/
+clients/
+data/private/
+transcripts/
+*.transcript.*
+exports/
+
+# Source business documents are not committed unless explicitly approved
+*.docx
+*.xlsx
+*.xlsm
+*.pdf
+
+# --- Dependencies and build output ---
+node_modules/
+.next/
+.vercel/
+.wrangler/
+dist/
+build/
+out/
+coverage/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# --- Temporary / local artifacts ---
+tmp/
+temp/
+*.log
+*.tmp
+*.bak
+.cache/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
