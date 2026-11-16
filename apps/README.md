@@ -10,4 +10,6 @@ No applications exist yet. This folder is where they will live.
 - No client data in this repository.
 - Add monorepo tooling only if several apps actually need to share code.
 
-Possible first app: the public Cumbre website (not yet decided — see [`PROJECT_CONTEXT.md`](../PROJECT_CONTEXT.md)).
+## Current app
+
+[`website/`](website/README.md) is Cumbre's static public website MVP. It remains intentionally self-contained and dependency-free while the domain, host, lead channel, CRM, and final website architecture are decided. See [ADR 0002](../docs/decisions/0002-website-mvp.md).

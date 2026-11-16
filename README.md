@@ -23,6 +23,7 @@ The central workspace for Cumbre. Today it is a **documentation and organization
 | Pricing philosophy | [`docs/pricing/principles.md`](docs/pricing/principles.md) |
 | Brand guidance | [`docs/brand/README.md`](docs/brand/README.md) |
 | Why things are the way they are | [`docs/decisions/`](docs/decisions/) |
+| Public-safe project and tool index | [`FOLDERS/`](FOLDERS/README.md) |
 
 ## Structure
 

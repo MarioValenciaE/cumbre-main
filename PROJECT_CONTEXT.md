@@ -103,14 +103,18 @@ See [`docs/brand/README.md`](docs/brand/README.md).
 
 ## 7. Website plans
 
-An initial official website is being considered; no architecture has been decided. Possible goals:
+An initial official website MVP is being built as a static, Spanish-first marketing site. Its positioning and commercial claims remain provisional; it is not a finalized service catalogue. See [ADR 0002](docs/decisions/0002-website-mvp.md).
+
+Current goals:
 
 - Explain what Cumbre does
 - Establish legitimacy
 - Present relevant work and capabilities
 - Capture prospect inquiries
 - Offer a lightweight discovery funnel
-- Support basic SEO and analytics
+- Support basic SEO and consent-gated optional analytics
+
+**Implementation boundary:** the MVP includes a browser-side diagnostic funnel and configuration hooks for one lead destination. It does not yet store leads, connect a CRM, select a host/domain, or configure production tracking accounts. Those remain open decisions.
 
 ## 8. Open decisions ❓
 
@@ -141,3 +145,4 @@ Once reviewed, treat brainstorming as hypotheses, prefer recent confirmed decisi
 | Date | Decision |
 | --- | --- |
 | 2026-11-13 | Repository starts as a documentation and organization hub; no applications, stack, or infrastructure selected yet. See [ADR 0001](docs/decisions/0001-repository-scope.md). |
+| 2026-11-13 | Build a static, Spanish-first public website MVP under `apps/website/`, without a backend or selected production host. See [ADR 0002](docs/decisions/0002-website-mvp.md). |

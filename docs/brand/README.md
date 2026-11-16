@@ -22,3 +22,5 @@ Suggested usage is a starting point, not a finalized brand system. Check text/ba
 ## Logo
 
 The official logo is supplied separately. **Do not alter or recreate it.** Place approved files in [`assets/brand/`](../../assets/brand/README.md).
+
+`cumbre-logo-provided.png` is a founder-supplied candidate used unchanged in the website MVP. Confirm its official status before a production launch.
