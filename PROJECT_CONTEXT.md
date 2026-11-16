@@ -1,8 +1,10 @@
 # Cumbre — Project Context
 
 > Central source of truth for Cumbre. Read before significant tasks.
-> **Last updated:** 2026-11-13
+> **Last updated:** 2026-11-16
 > Agents: update this file (and the date and decision log) when confirmed company decisions materially change. Keep it free of implementation minutiae and temporary task notes.
+
+> Detailed agent context (founder-authored, v1.0, 2026-11-16): [`docs/context/CUMBRE_CONTEXT.md`](docs/context/CUMBRE_CONTEXT.md). This file stays the short summary; where they differ, the more recent founder-confirmed statement wins.
 
 **Legend:** ✅ confirmed · 🧪 hypothesis / exploratory · ❓ open
 
@@ -38,6 +40,9 @@
   2. **ENTENDER** — daily operations, processes, people and responsibilities, existing technology, data and information flows.
   3. **EXPLORAR** — bottlenecks, recurring errors, manual work, key-person dependencies, lost opportunities, BI gaps, customer problems, management ambitions.
   4. **PRÓXIMOS PASOS** — evaluate findings, identify opportunities, assess financial impact and feasibility, decide between a proposal, a pilot, or a deeper diagnosis.
+- **Discovery meeting kit** ✅: a 14-slide editable deck guides the meeting; question list and post-meeting process in [`CUMBRE_CONTEXT.md` §7–8](docs/context/CUMBRE_CONTEXT.md).
+- **First discovery session held** ✅ with one company (transcript and notes exist but have not been analyzed here; findings unknown — do not assume, and do not assume which company it was).
+- **Session analysis workflow** ✅ installed but 🧪 not yet validated on real evidence: `/cumbre-discovery` ([`docs/discovery/README.md`](docs/discovery/README.md)).
 - **Known prospect activity:** A discovery presentation was prepared for **ProPES**. No meeting outcomes are recorded and ProPES is **not** a customer. Do not claim otherwise.
 - **Unconfirmed commercial assumptions:** everything in sections 3–5 below that is marked 🧪, plus any example rates seen in pricing spreadsheets.
 
@@ -146,3 +151,4 @@ Once reviewed, treat brainstorming as hypotheses, prefer recent confirmed decisi
 | --- | --- |
 | 2026-11-13 | Repository starts as a documentation and organization hub; no applications, stack, or infrastructure selected yet. See [ADR 0001](docs/decisions/0001-repository-scope.md). |
 | 2026-11-13 | Build a static, Spanish-first public website MVP under `apps/website/`, without a backend or selected production host. See [ADR 0002](docs/decisions/0002-website-mvp.md). |
+| 2026-11-16 | Adopt founder-supplied `CUMBRE_CONTEXT` v1.0 and master prompt v1.0; install the `/cumbre-discovery` agent workflow with client sessions in git-ignored `clients/`. See [ADR 0003](docs/decisions/0003-discovery-agent-workflow.md). |

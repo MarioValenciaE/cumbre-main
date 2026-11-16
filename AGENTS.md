@@ -5,7 +5,7 @@ Cumbre is an early-stage startup; this repo is currently a **documentation and o
 
 ## Start here
 
-1. Read [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) before any significant task. It is the source of truth for the company.
+1. Read [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) before any significant task. It is the source of truth for the company. For strategy, analysis, or client work, also read the agent context [`docs/context/CUMBRE_CONTEXT.md`](docs/context/CUMBRE_CONTEXT.md).
 2. Inspect the files you are about to change. Do not overwrite existing work without reading it.
 3. If a task touches strategy, pricing, or positioning, treat existing content as **hypotheses** unless marked confirmed.
 
@@ -45,11 +45,20 @@ Choose based on the actual requirements of the task, explain major choices brief
 | --- | --- |
 | `PROJECT_CONTEXT.md` | Company source of truth |
 | `docs/strategy/` | Positioning, service hypotheses |
-| `docs/discovery/templates/` | Reusable, public-safe discovery templates |
+| `docs/context/` | Agent company context (`CUMBRE_CONTEXT.md`, canonical) and original PDF |
+| `docs/discovery/` | Discovery workflow guide, methodology (`methodology/MASTER_PROMPT_v1.md`), templates |
+| `.claude/skills/cumbre-discovery/` | `/cumbre-discovery` skill: analyzes a client session end to end |
+| `.claude/skills/cumbre-new/` | `/cumbre-new` skill: matches new documents to an existing or new client folder, files them into a session, runs discovery |
+| `scripts/discovery/` | Session script (`clients` / `inbox` / `new` / `add` / `check`) and `session.yaml` template |
+| `clients/` (git-ignored) | Confidential client sessions; never committed |
 | `docs/pricing/` | Pricing principles (no official price list exists) |
 | `docs/brand/`, `assets/brand/` | Brand guidance and (separately supplied) official assets |
 | `docs/decisions/` | Architecture/scope decision records |
 | `apps/` | Future applications; one folder per app, each self-contained |
+
+## Client discovery analysis
+
+When a founder shares new client documents (attached, or dropped in `clients/_inbox/` or `clients/<client>/inbox/`), follow [`.claude/skills/cumbre-new/SKILL.md`](.claude/skills/cumbre-new/SKILL.md) (`/cumbre-new [client]`). To process an existing session, follow [`.claude/skills/cumbre-discovery/SKILL.md`](.claude/skills/cumbre-discovery/SKILL.md) (Claude Code: `/cumbre-discovery <session.yaml>`). Do not improvise a different methodology or output layout. See [`docs/discovery/README.md`](docs/discovery/README.md).
 
 ## Brand rules
 

@@ -1,0 +1,49 @@
+# Cumbre discovery session config. Read by /cumbre-discovery and
+# docs/discovery/methodology/MASTER_PROMPT_v1.md.
+# CONFIDENTIAL: this session folder must stay out of Git. Never put credentials here.
+schema_version: 1
+
+client_name: "$client_name"
+client_slug: $client_slug
+project_slug: $project_slug
+session_id: $session_id
+session_date: $session_date
+# primera_reunion: hypotheses + validation plan, no closed quote.
+# post_validacion: systems/data/processes already verified; more defensible scope and estimates.
+session_stage: primera_reunion
+currency: COP
+output_language: es-CO
+
+# Prefer roles to names. Leave empty if unknown; do not guess.
+attendees:
+  cumbre: []
+  client: []
+
+# The agent reads ALL files under inputs/. These folders tell it what each file is,
+# which decides the evidence tag and citation prefix.
+inputs:
+  transcript: inputs/transcript/      # TR:  verbatim transcript(s) -> [CONFIRMADO] client statements
+  internal_notes: inputs/notes/       # NT:  Cumbre's own notes -> [NOTA_INTERNA], never client facts
+  deck: inputs/deck/                  # SL:  slides actually used -> question intent only, not evidence
+  documents: inputs/documents/        # DOC: client-supplied documents/records -> [CONFIRMADO]
+  data_samples: inputs/data/          # DOC: authorized data samples/exports
+  external: inputs/external/          # [EXTERNO] public web/social research, with source and date
+
+# Leave null unless the founders approved the value. Missing values mean the agent writes
+# TARIFA NO DEFINIDA and gives formulas, never invented figures.
+commercial_assumptions:
+  internal_hourly_cost:               # per role, in `currency`. Roles are generic; rename them or add one
+                                      # per person (e.g. founder_business, founder_technical) to match how estimates are staffed.
+    business_analyst: null
+    solutions_architect: null
+    developer: null
+    project_lead: null
+  team_availability_hours_per_week: null
+  overhead_rate: null                 # fraction of labor_cost, e.g. 0.10 = 10%
+  contingency_rate: null              # fraction of (labor_cost + overhead + third_party_costs)
+  target_gross_margin: null           # fraction, e.g. 0.40 = 40% margin (not markup)
+  approved_by: null                   # who approved these values, and when
+
+# Whether the agent may do public web research on this client (results tagged [EXTERNO]).
+# Never send transcript content, personal data, or confidential details to external services.
+external_research_allowed: false

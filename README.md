@@ -19,6 +19,8 @@ The central workspace for Cumbre. Today it is a **documentation and organization
 | The company's source of truth | [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) |
 | Rules for AI coding agents | [`AGENTS.md`](AGENTS.md) |
 | Positioning and service hypotheses | [`docs/strategy/`](docs/strategy/) |
+| Agent company context | [`docs/context/CUMBRE_CONTEXT.md`](docs/context/CUMBRE_CONTEXT.md) |
+| Discovery workflow (`/cumbre-discovery`) | [`docs/discovery/README.md`](docs/discovery/README.md) |
 | Discovery meeting templates | [`docs/discovery/templates/`](docs/discovery/templates/) |
 | Pricing philosophy | [`docs/pricing/principles.md`](docs/pricing/principles.md) |
 | Brand guidance | [`docs/brand/README.md`](docs/brand/README.md) |
@@ -34,12 +36,16 @@ cumbre-main/
 ├── README.md
 ├── docs/
 │   ├── strategy/      positioning, service hypotheses
-│   ├── discovery/     reusable templates
+│   ├── context/       agent company context (CUMBRE_CONTEXT)
+│   ├── discovery/     workflow guide, methodology, templates
 │   ├── pricing/       pricing principles
 │   ├── brand/         brand guidance
 │   └── decisions/     decision records
 ├── assets/brand/      official brand assets (supplied separately)
-└── apps/              future applications
+├── scripts/discovery/ session script for /cumbre-discovery
+├── .claude/skills/    Claude Code skills
+├── clients/           confidential client sessions (git-ignored)
+└── apps/              applications
 ```
 
 ## Working with AI agents

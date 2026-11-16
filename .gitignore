@@ -25,6 +25,9 @@ exports/
 *.xlsx
 *.xlsm
 *.pdf
+# Approved originals of agent reference documents (Markdown versions are canonical)
+!docs/context/source/*.pdf
+!docs/discovery/methodology/source/*.pdf
 
 # --- Dependencies and build output ---
 node_modules/
