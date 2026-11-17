@@ -8,6 +8,7 @@ How Cumbre turns a client discovery session into an evidence-based decision pack
 | Analysis methodology (master prompt v1.0) | [`methodology/MASTER_PROMPT_v1.md`](methodology/MASTER_PROMPT_v1.md) · original PDF in [`methodology/source/`](methodology/source/) |
 | Claude Code skills | [`cumbre-new`](../../.claude/skills/cumbre-new/SKILL.md) → `/cumbre-new` (new files → match/create client → session → analysis) · [`cumbre-discovery`](../../.claude/skills/cumbre-discovery/SKILL.md) → `/cumbre-discovery` (analysis of one session) |
 | Session script + `session.yaml` template | [`scripts/discovery/`](../../scripts/discovery/) |
+| Public company research before the meeting (`[EXTERNO]` handoff into `inputs/external/`) | [`docs/research/README.md`](../research/README.md) · `/cumbre-company-research` |
 | Human meeting templates | [`templates/`](templates/) |
 
 The Markdown files are the canonical versions that agents read. The PDFs are archived originals. To change the methodology, edit the Markdown and bump its version. See [ADR 0003](../decisions/0003-discovery-agent-workflow.md).

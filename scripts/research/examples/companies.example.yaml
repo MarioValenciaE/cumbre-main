@@ -1,0 +1,16 @@
+# Fictional example of a multi-company research file.
+# python scripts/research/cumbre.py research --companies-file scripts/research/examples/companies.example.yaml --depth deep
+# YAML needs PyYAML; the same structure in JSON works without it.
+companies:
+  - name: "Empresa ABC"
+    country: CO
+    city: Cali
+    domains: ["empresa-abc.example"]
+    industry_hints: ["distribución", "herramientas"]
+    legal_identifiers: {nit: "900000000-0"}
+    aliases: ["ABC Distribuciones"]
+    product_keywords: ["taladros"]
+    research_focus: ["inventario"]
+  - name: "Empresa XYZ"
+    country: CO
+    city: Medellín

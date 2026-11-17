@@ -43,6 +43,7 @@ cumbre-main/
 │   └── decisions/     decision records
 ├── assets/brand/      official brand assets (supplied separately)
 ├── scripts/discovery/ session script for /cumbre-discovery
+├── scripts/research/  company intelligence engine (see docs/research/)
 ├── .claude/skills/    Claude Code skills
 ├── clients/           confidential client sessions (git-ignored)
 └── apps/              applications

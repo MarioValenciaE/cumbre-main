@@ -1,0 +1,120 @@
+{
+  "config_version": "3.0.0",
+  "scoring_version": "1.0.0",
+  "schema_version": 3,
+  "default_depth": "deep",
+  "_note": "Targets are not quotas. Override any key with --config <file.json|yaml> or CLI flags. Edit this file and bump config_version when defaults change.",
+  "depths": {
+    "standard": {
+      "target_pages": [30, 80],
+      "max_search_queries": 40,
+      "max_pages": 120,
+      "max_crawl_depth": 2,
+      "min_waves": 1,
+      "max_waves": 2,
+      "max_runtime_s": 1800,
+      "novelty_stop_threshold": 0.05,
+      "sitemap_url_cap": 2000,
+      "catalog_sample_per_pattern": 4,
+      "external_fetch_share": 0.35,
+      "results_per_query": 10
+    },
+    "deep": {
+      "target_pages": [100, 300],
+      "max_search_queries": 150,
+      "max_pages": 400,
+      "max_crawl_depth": 3,
+      "min_waves": 2,
+      "max_waves": 4,
+      "max_runtime_s": 5400,
+      "novelty_stop_threshold": 0.04,
+      "sitemap_url_cap": 10000,
+      "catalog_sample_per_pattern": 8,
+      "external_fetch_share": 0.4,
+      "results_per_query": 10
+    },
+    "exhaustive": {
+      "target_pages": [300, 1000],
+      "max_search_queries": 500,
+      "max_pages": 1500,
+      "max_crawl_depth": 5,
+      "min_waves": 3,
+      "max_waves": 8,
+      "max_runtime_s": 14400,
+      "novelty_stop_threshold": 0.02,
+      "sitemap_url_cap": 50000,
+      "catalog_sample_per_pattern": 15,
+      "external_fetch_share": 0.45,
+      "results_per_query": 20
+    }
+  },
+  "fetch": {
+    "user_agent": "CumbreResearchBot/0.3 (+passive public company research; respects robots.txt)",
+    "timeout_s": 20,
+    "max_bytes": 6000000,
+    "max_redirects": 5,
+    "per_host_min_interval_s": 1.0,
+    "max_concurrency": 4,
+    "retries": 2,
+    "respect_robots": true,
+    "allowed_ports": [80, 443, 8080, 8443],
+    "observe_security_headers": true
+  },
+  "budgets": {
+    "max_spend_usd": 0.0,
+    "max_llm_tokens": 0,
+    "_note": "The engine itself calls no LLM. Paid providers need --allow-paid and a provider call cap."
+  },
+  "paid_provider_call_caps": {
+    "tavily.search": 0,
+    "tavily.map": 0,
+    "tavily.extract": 0,
+    "firecrawl.map": 0,
+    "firecrawl.scrape": 0,
+    "brave.search": 0,
+    "_note": "0 = disabled. Set via --provider-cap tavily.search=150 after founder approval."
+  },
+  "provider_unit_costs_usd": {
+    "tavily.search": null,
+    "tavily.map": null,
+    "tavily.extract": null,
+    "firecrawl.map": null,
+    "firecrawl.scrape": null,
+    "brave.search": null,
+    "_note": "null = unknown. Fill from your actual plan; the engine never guesses prices. Tavily docs (2026-11-16): search basic=1 credit, advanced=2; map=1 credit/10 pages; extract basic=1 credit/5 URLs."
+  },
+  "free_provider_min_interval_s": {
+    "gdelt": 6.0,
+    "wayback": 1.5,
+    "rdap": 1.0,
+    "wikidata": 1.0,
+    "secop": 1.0
+  },
+  "score_weights": {
+    "relevance": 0.35,
+    "reliability": 0.15,
+    "freshness": 0.1,
+    "novelty": 0.15,
+    "opportunity": 0.25,
+    "_note": "Used only for crawl scheduling priority. Never used to delete evidence."
+  },
+  "retention": {
+    "store_passages": true,
+    "max_passage_chars": 420,
+    "max_passages_per_page": 30,
+    "_note": "Short passages are kept only in the private run database for search; reports paraphrase and cite."
+  },
+  "recent_window_days": 365,
+  "reputable_news_domains": [
+    "eltiempo.com", "elespectador.com", "semana.com", "larepublica.co", "portafolio.co",
+    "valoraanalitik.com", "elcolombiano.com", "elpais.com.co", "eluniversal.com.co", "vanguardia.com",
+    "dinero.com", "forbes.co", "bloomberglinea.com", "reuters.com", "bloomberg.com", "elpais.com",
+    "infobae.com", "techcrunch.com", "ft.com", "wsj.com", "nytimes.com", "bbc.com", "cnn.com",
+    "expansion.mx", "americaeconomia.com", "iproup.com", "contxto.com", "lanacion.com.ar"
+  ],
+  "aggregator_domains": [
+    "emis.com", "dnb.com", "zoominfo.com", "crunchbase.com", "craft.co", "rocketreach.co",
+    "owler.com", "infocif.es", "einforma.co", "informacolombia.com", "datacreditoempresas.com.co",
+    "empresite.eleconomistaamerica.co", "colombiaempresas.co", "guiaempresas.co", "cylex.com.co"
+  ]
+}

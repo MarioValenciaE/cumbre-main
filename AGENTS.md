@@ -50,11 +50,16 @@ Choose based on the actual requirements of the task, explain major choices brief
 | `.claude/skills/cumbre-discovery/` | `/cumbre-discovery` skill: analyzes a client session end to end |
 | `.claude/skills/cumbre-new/` | `/cumbre-new` skill: matches new documents to an existing or new client folder, files them into a session, runs discovery |
 | `scripts/discovery/` | Session script (`clients` / `inbox` / `new` / `add` / `check`) and `session.yaml` template |
+| `scripts/research/`, `docs/research/` | Company intelligence engine (`cumbre.py research …`) and its guide; `/cumbre-company-research` skill |
 | `clients/` (git-ignored) | Confidential client sessions; never committed |
 | `docs/pricing/` | Pricing principles (no official price list exists) |
 | `docs/brand/`, `assets/brand/` | Brand guidance and (separately supplied) official assets |
 | `docs/decisions/` | Architecture/scope decision records |
 | `apps/` | Future applications; one folder per app, each self-contained |
+
+## Company research before/after meetings
+
+For public research on a prospect, follow [`.claude/skills/cumbre-company-research/SKILL.md`](.claude/skills/cumbre-company-research/SKILL.md) (`/cumbre-company-research`). Rules and outputs: [`docs/research/README.md`](docs/research/README.md). Passive public research only; outputs stay in `clients/`.
 
 ## Client discovery analysis
 
