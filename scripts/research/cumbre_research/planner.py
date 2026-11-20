@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from .company import COUNTRY_NAMES_ES, Company
-from .util import fold, host_of, registrable_domain
+import re
+
+from .company import COUNTRY_NAMES_ES, LEGAL_SUFFIXES, Company, name_tokens, strip_legal
+from .util import fold, host_of, registrable_domain, slugify
 
 FACETS = {
     "identity_legal": {"es": ["{n} NIT", "{n} razón social", "{n} S.A.S.", "{n} cámara de comercio", "\"{n}\" empresa"],
@@ -46,6 +48,22 @@ def query_variants(company: Company) -> list[str]:
     return names[:4]
 
 
+def ambiguous_name(company: Company) -> bool:
+    """Short or single-word names (e.g. "Brisa") return worldwide noise unless the query adds a locality."""
+    core = strip_legal(company.name)
+    return len(name_tokens(company.name)) <= 1 or len(core) <= 8
+
+
+def localize(company: Company, query: str, lang: str | None) -> str:
+    """Append the city (else country) to a query when the name alone is ambiguous (any language)."""
+    if not ambiguous_name(company):
+        return query
+    place = company.city or COUNTRY_NAMES_ES.get(company.country or "")
+    if not place or fold(place) in fold(query) or "site:" in query:
+        return query
+    return f"{query} {place}"
+
+
 def initial_queries(company: Company, depth: str, max_queries: int) -> list[dict]:
     """Wave-1 matrix: facet x language x name variant (+ locality)."""
     out = []
@@ -66,6 +84,7 @@ def initial_queries(company: Company, depth: str, max_queries: int) -> list[dict
                 q = t.format(n=base_name)
                 if lang == "es" and loc and facet in ("identity_legal", "locations_expansion", "reputation_reviews"):
                     q = f"{q} {company.city or ''}".strip()
+                q = localize(company, q, lang)
                 out.append(_q(q, facet, 1, "matrix", lang=lang, news=facet in ("news_media", "risk_incidents")))
     for alt in names[1:]:
         for facet in ("identity_legal", "news_media", "products_services"):
@@ -96,7 +115,7 @@ def gap_queries(company: Company, wave: int, facet_counts: dict, leads: list, ex
     for facet in thin:
         for lang, templates in FACETS[facet].items():
             for t in templates:
-                q = t.format(n=name)
+                q = localize(company, t.format(n=name), lang)
                 if q.lower() not in executed:
                     out.append(_q(q, facet, wave, "gap:thin_facet", lang=lang, news=facet in ("news_media", "risk_incidents")))
                     break
@@ -108,7 +127,7 @@ def gap_queries(company: Company, wave: int, facet_counts: dict, leads: list, ex
             out.append(_q(f"\"{value}\"", "external_mentions", wave, "lead:domain"))
         elif kind == "brand":
             out.append(_q(f"\"{value}\" {name}", "products_services", wave, "lead:brand"))
-    out.append(_q(f"\"{name}\" filetype:pdf", "resources_documents", wave, "gap:documents"))
+    out.append(_q(localize(company, f"\"{name}\" filetype:pdf", "es"), "resources_documents", wave, "gap:documents"))
     uniq, seen = [], set(executed)
     for q in out:
         if q["query"].lower() not in seen:
@@ -162,6 +181,9 @@ def candidate_entities(company: Company, hits: list, wikidata: list[dict],
         c["wikidata"] = w
     for h in hits:
         host = registrable_domain(host_of(h.url))
+        if host and host.split(".")[0] in PROFILE_SITE_LABELS:
+            _profile_candidate(company, h, host, cands)
+            continue
         if not host or host in _NON_COMPANY_HOSTS or any(host.endswith(s) for s in (".gov.co", ".gov")):
             continue
         blob = f"{h.title} {h.snippet}"
@@ -187,6 +209,39 @@ def candidate_entities(company: Company, hits: list, wikidata: list[dict],
     return sorted(cands.values(), key=lambda c: -c["identity_match_confidence"])
 
 
+# Company-directory / registry sites: a profile there is evidence an entity exists, not an official website.
+PROFILE_SITE_LABELS = {"emis", "einforma", "informacolombia", "empresite", "colombiaempresas", "guiaempresas",
+                       "datacreditoempresas", "rues", "dnb", "cylex", "zoominfo", "rocketreach", "crunchbase",
+                       "opencorporates", "infoempresas", "empresascolombia", "directorioempresas"}
+
+
+def _profile_candidate(company: Company, h, host: str, cands: dict) -> None:
+    """A directory profile whose title carries the exact company name becomes a weak, website-less candidate."""
+    title = (h.title or "").strip()
+    head = re.split(r"\s[-|–·]\s|company profile|perfil de", title, maxsplit=1, flags=re.I)[0].strip()
+    nm = company.name_match(head)
+    if not nm["exact_phrase"] or strip_legal(head) != strip_legal(company.legal_name or company.name):
+        return  # Brisas / Brisol are different entities from Brisa: never merged
+    blob = f"{title} {h.snippet}"
+    conf = 0.3 + (0.05 if re.search(LEGAL_SUFFIXES, fold(head)) else 0)
+    locs = company.location_hits(blob)
+    if locs:
+        conf += 0.1
+    country = COUNTRY_NAMES_ES.get(company.country or "")
+    country_en = {"CO": "colombia", "MX": "mexico", "PE": "peru", "EC": "ecuador", "CL": "chile"}.get(company.country or "")
+    path = fold(h.url)
+    if (country and fold(country) in fold(blob)) or (company.country and f"/{company.country.lower()}/" in path)             or (country_en and country_en in fold(blob)):
+        conf += 0.05
+    key = "profile:" + slugify(head)
+    c = cands.setdefault(key, {"candidate": key, "label": head[:80], "basis": [], "evidence_urls": [],
+                               "identity_match_confidence": 0.0, "hint_matches": [], "website": None})
+    c["basis"].append(f"directory profile on {host} (no official website found from it)")
+    if h.url not in c["evidence_urls"] and len(c["evidence_urls"]) < 5:
+        c["evidence_urls"].append(h.url)
+    c["hint_matches"] = sorted(set(c["hint_matches"]) | set(locs))
+    c["identity_match_confidence"] = max(c["identity_match_confidence"], round(min(conf, 0.5), 2))
+
+
 ORG_WORDS = ("company", "empresa", "manufacturer", "fabricante", "brand", "marca", "business", "corporation",
              "enterprise", "retailer", "producer", "productor", "organization", "organizacion", "cooperative",
              "cooperativa", "group", "grupo", "firm", "distributor", "distribuidor", "chain", "cadena", "startup")
@@ -205,6 +260,10 @@ _NON_COMPANY_HOSTS = {"facebook.com", "instagram.com", "linkedin.com", "twitter.
                       "eltiempo.com", "semana.com", "larepublica.co", "portafolio.co", "elespectador.com"}
 
 
+CONFIRMED_IDENTITY = ("confirmed_by_hint", "confirmed_by_founder", "dominant")
+UNCERTAIN_IDENTITY = ("ambiguous", "provisional", "tentative", "unresolved")
+
+
 def decide_identity(candidates: list[dict], margin: float = 0.15) -> dict:
     """Pick a provisional identity only if it clearly dominates; otherwise flag."""
     if not candidates:
@@ -217,6 +276,16 @@ def decide_identity(candidates: list[dict], margin: float = 0.15) -> dict:
         return {"status": "confirmed_by_hint", "chosen": top["candidate"],
                 "alternatives": [c["candidate"] for c in candidates[1:6]],
                 "rationale": "Official URL supplied by the user."}
+    if "nit" in top["hint_matches"] and top["candidate"].startswith("nit:"):
+        return {"status": "confirmed_by_hint", "chosen": top["candidate"],
+                "alternatives": [c["candidate"] for c in candidates[1:6]],
+                "rationale": "The NIT supplied matches a RUES registry record."}
+    if margin_ok and top["candidate"].startswith("profile:"):
+        return {"status": "tentative", "chosen": top["candidate"],
+                "alternatives": [c["candidate"] for c in candidates[1:6]],
+                "rationale": "Only a company-directory profile matches the exact name (no official website or "
+                             "registry record found). Treated as a tentative identity; confirm it with the company "
+                             "or RUES and record it with `confirm-identity`."}
     if top["identity_match_confidence"] >= 0.9 and margin_ok:
         return {"status": "dominant", "chosen": top["candidate"],
                 "alternatives": [c["candidate"] for c in candidates[1:6]],

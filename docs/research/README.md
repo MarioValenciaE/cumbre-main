@@ -16,16 +16,16 @@ python scripts/research/cumbre.py research "Empresa ABC" --mode targeted --focus
 python scripts/research/cumbre.py demo --out <scratch folder>   # synthetic end-to-end run, no network
 ```
 
-Other commands: `resume`, `pending`, `ingest-search`, `ingest-findings`, `render`, `lint`, `query`, `diff`, `migrate`. Add `--json` anywhere for machine output. Budget flags: `--max-spend --max-search-queries --max-pages --max-depth --max-runtime --max-llm-tokens --max-concurrency --provider-cap name=N --allow-paid`.
+Other commands: `resume`, `pending`, `confirm-identity` (record a founder-confirmed official URL / NIT / legal name / candidate, then `resume`), `ingest-search`, `ingest-findings`, `render`, `lint`, `query`, `diff`, `migrate`. Add `--json` anywhere for machine output. Budget flags: `--max-spend --max-search-queries --max-pages --max-depth --max-runtime --max-llm-tokens --max-concurrency --provider-cap name=N --allow-paid`.
 
 ## How a run works
 
 | Phase | What happens | Code |
 | --- | --- | --- |
-| A Identity | Candidate table from supplied URL, Wikidata and search hits; `confirmed_by_hint` / `dominant` / `provisional` (labelled assumption) / `ambiguous` (alternatives researched for identity only) / `unresolved`. Never merges candidates. | `planner.py` |
+| A Identity | Candidate table from supplied URL, Wikidata and search hits; `confirmed_by_hint` / `dominant` / `provisional` (labelled assumption) / `ambiguous` (alternatives researched for identity only) / `tentative` (only a company-directory profile matches; no website) / `unresolved`; `confirmed_by_founder` after `confirm-identity`. Short names (one word or ≤8 letters) get the city appended to every query. Never merges candidates. | `planner.py` |
 | B Query universe | Facet × language × name-variant matrix (14 facets, es/en, aliases, product keywords, focus). | `planner.py` |
 | C Mapping | robots.txt, sitemaps (incl. indexes), internal links to `max_crawl_depth`, Wayback URL history, optional Tavily/Firecrawl map. URL categories; huge catalogs sampled per URL pattern with counts recorded. | `pipeline.py`, `extract.py` |
-| D External | RDAP, Wayback captures by year + yearly samples, GDELT news, SECOP II (CO, NIT suppliers only, no personal fields), Wikidata. | `providers.py` |
+| D External | RDAP, Wayback captures by year + yearly samples, GDELT news, SECOP II (CO, NIT suppliers only, no personal fields), Wikidata. RUES (CO) runs in phase A: by NIT if known, else exact legal name; a single exact match resolves website-less companies, otherwise it corroborates the site candidate and adds NIT / matrícula / CIIU / status claims. | `providers.py`, `pipeline.py` |
 | E Signals | 27 rule families (quoting, chat ordering, PDF catalogs, wholesale, payments, PQRS, hiring, spreadsheets, compliance…), one record per observation, many per page. | `analyze.py` |
 | F Verification | Claims with `fact_status`, `evidence_strength`, `confidence_band`, supporting/contradicting sources; contradiction detection; distinct event / publication / modification / archive / retrieval dates. | `analyze.py`, `pipeline.finalize` |
 | G Gap waves | Thin facets, new aliases/domains, documents → next wave; novelty yield per wave. | `planner.gap_queries` |
@@ -49,6 +49,7 @@ Configured in [`scripts/research/research_defaults.json`](../../scripts/research
 | --- | --- | --- | --- |
 | Direct HTTP | map, crawl, extract, tech fingerprint | free | works (robots-aware, 1 req/s/host) |
 | Wayback CDX, RDAP, Wikidata, SECOP II, GDELT | archive, registry, news | free (GDELT: 1 req / 5 s) | works; verified live 2026-11-16 |
+| RUES open data (Confecámaras, datos.gov.co `c82u-588k`, CC BY-SA 4.0) | Colombian business registry: legal name, NIT + DV, chamber, matrícula, CIIU, status, last renewal | free, no key | works; verified live 2026-11-20. Legal entities only; legal-representative and natural-person fields are never requested. The DIAN RUT lookup (MUISCA) has a CAPTCHA and is not automated. |
 | Agent web search (Claude Code WebSearch) | search | covered by the agent session | via `pending` → `ingest-search` → `resume` |
 | Tavily (search/map/extract) | search, map, extract | paid credits | `TAVILY_API_KEY` + `--allow-paid` + `--provider-cap tavily.search=N` |
 | Brave Search | search | paid | `BRAVE_SEARCH_API_KEY` + same authorization |

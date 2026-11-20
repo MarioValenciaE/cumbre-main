@@ -169,6 +169,17 @@ def api_json(url: str):
     if host == "api.gdeltproject.org":
         return {"articles": [{"url": "https://www.eltiempo.com/economia/empresas/ferreteria-andina-demo-expande-2026",
                               "title": "Ferretería Andina Demo se expande", "seendate": "20260801T120000Z", "domain": "eltiempo.com"}]}
+    if host == "www.datos.gov.co" and "c82u-588k" in parts.path:  # fictional RUES registry rows
+        rows = [{"camara_comercio": "CALI", "matricula": "999001", "razon_social": "FERRETERIA ANDINA DEMO S.A.S.",
+                 "nit": "900123456", "digito_verificacion": "8", "cod_ciiu_act_econ_pri": "4752",
+                 "fecha_matricula": "20080312", "ultimo_ano_renovado": "2026",
+                 "organizacion_juridica": "SOCIEDADES POR ACCIONES SIMPLIFICADAS SAS", "estado_matricula": "ACTIVA"},
+                {"camara_comercio": "BOGOTA", "matricula": "999002", "razon_social": "FERRETERIA ANDINA DEMOLICIONES LTDA",
+                 "nit": "900765432", "digito_verificacion": "1", "estado_matricula": "ACTIVA"}]
+        where = q.get("$where", "")
+        if "nit='" in where:
+            return [r for r in rows if f"nit='{r['nit']}'" in where]
+        return rows
     if host == "www.datos.gov.co":
         return [{"nombre_entidad": "ALCALDIA DE EJEMPLO", "proveedor_adjudicado": "FERRETERIA ANDINA DEMO S.A.S.",
                  "documento_proveedor": "900123456", "valor_del_contrato": "45000000", "fecha_de_firma": "2025-02-10T00:00:00.000",

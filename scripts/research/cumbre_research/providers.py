@@ -400,6 +400,43 @@ class SecopProvider(_FreeGet):
         return data if isinstance(data, list) else []
 
 
+class RuesProvider(_FreeGet):
+    """Colombia RUES business registry (Confecámaras open data on datos.gov.co, dataset c82u-588k, CC BY-SA 4.0).
+
+    Free, no key. Only legal entities are queried and only company fields are selected: natural persons,
+    the legal representative's name and ID number are never requested or stored.
+    """
+    name = "rues"
+    capabilities = {"registries", "identity"}
+    dataset = "https://www.datos.gov.co/resource/c82u-588k.json"
+    FIELDS = ("camara_comercio,matricula,razon_social,sigla,nit,digito_verificacion,cod_ciiu_act_econ_pri,"
+              "cod_ciiu_act_econ_sec,fecha_matricula,ultimo_ano_renovado,fecha_cancelacion,organizacion_juridica,"
+              "estado_matricula,fecha_actualizacion")
+    LEGAL_ONLY = "organizacion_juridica != 'PERSONA NATURAL' AND nit IS NOT NULL"
+
+    def lookup(self, nit: str | None = None, name: str | None = None, limit: int = 50) -> list[dict]:
+        if nit:
+            digits = "".join(ch for ch in str(nit).split("-")[0] if ch.isdigit())
+            if not digits:
+                return []
+            where = f"nit='{digits}' AND {self.LEGAL_ONLY}"
+        elif name:
+            safe = "".join(ch for ch in name.upper() if ch.isalnum() or ch in " &.-").strip()
+            if len(safe) < 3:
+                return []
+            where = f"upper(razon_social) like '%{safe}%' AND {self.LEGAL_ONLY}"
+        else:
+            return []
+        params = {"$select": self.FIELDS, "$where": where, "$limit": int(limit)}
+        data = self._get("lookup", self.dataset + "?" + urllib.parse.urlencode(params), params)
+        return data if isinstance(data, list) else []
+
+    @classmethod
+    def record_url(cls, nit: str) -> str:
+        """Stable, human-openable citation URL for one registry record."""
+        return f"{cls.dataset}?nit={nit}"
+
+
 class AgentSearchImport(Provider):
     """Search results produced by the operating agent's own web-search tool and
     imported with `cumbre.py ingest-search`. Not executed by the engine."""
@@ -415,7 +452,8 @@ def build_providers(fetcher: Fetcher, ledger: Ledger, cache, config: dict) -> di
              WaybackProvider(fetcher, ledger, cache, intervals.get("wayback", 1.5)),
              RdapProvider(fetcher, ledger, cache, intervals.get("rdap", 1.0)),
              WikidataProvider(fetcher, ledger, cache, intervals.get("wikidata", 1.0)),
-             SecopProvider(fetcher, ledger, cache, intervals.get("secop", 1.0))]
+             SecopProvider(fetcher, ledger, cache, intervals.get("secop", 1.0)),
+             RuesProvider(fetcher, ledger, cache, intervals.get("rues", 1.0))]
     return {p.name: p for p in provs}
 
 

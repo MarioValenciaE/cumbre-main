@@ -20,13 +20,13 @@ from .extract import (HIGH_VALUE_CATEGORIES, PageData, classify_url, extract_dat
                       pdf_text, social_platform, url_pattern)
 from .fetch import Fetcher, Response
 from .hypotheses import build_hypotheses
-from .planner import candidate_entities, decide_identity, gap_queries, initial_queries
-from .providers import BudgetExceeded, Ledger, SearchHit, build_providers, provider_report
+from .planner import CONFIRMED_IDENTITY, candidate_entities, decide_identity, gap_queries, initial_queries
+from .providers import BudgetExceeded, Ledger, RuesProvider, SearchHit, build_providers, provider_report
 from .safety import redact, safe_excerpt
 from .scoring import (classify_source_type, confidence_band, freshness, novelty, opportunity, priority,
                       relevance, reliability, shingles)
 from .store import Store, export_jsonl, load_prior_registry, new_run_dir, prior_runs, write_manifest
-from .util import canonical_url, fold, host_of, iso, registrable_domain, utc_now, write_json
+from .util import canonical_url, fold, host_of, iso, registrable_domain, utc_now, validate_nit, write_json
 
 SEARCH_PROVIDER_ORDER = ["tavily", "brave"]
 ASSET_RE = re.compile(r"\.(css|js|mjs|map|png|jpe?g|gif|svg|ico|webp|bmp|woff2?|ttf|eot|otf|mp4|mp3|webm|zip|rar|exe)$", re.I)
@@ -115,6 +115,7 @@ class ResearchRun:
         self.registry_extra: dict = self.store.kv_get("registry_extra") or {}
         self.stop_reason = ""
         self.limitations: list[str] = []
+        self._gdelt_paused = False
 
     # ------------------------------------------------------------------ utils
     def elapsed(self) -> float:
@@ -181,7 +182,7 @@ class ResearchRun:
             return
         prev = runs[-1]
         reg = load_prior_registry(prev)
-        src_ids = {s["canonical_url"]: s["source_id"] for s in reg["sources"]}
+        src_ids = {canonical_url(s["url"]): s["source_id"] for s in reg["sources"]}
         claim_ids = {c.get("claim_key"): c["claim_id"] for c in reg["claims"] if c.get("claim_key")}
         signal_ids = {s.get("signal_key"): s["signal_id"] for s in reg["signals"] if s.get("signal_key")}
         self.prior = {"dir": str(prev), "src_ids": src_ids, "claim_ids": claim_ids, "signal_ids": signal_ids,
@@ -224,11 +225,19 @@ class ResearchRun:
             used = []
             news_prov = self.providers["gdelt"]
             try:
-                if q.get("news") and not self.opt.skip_external:
+                if q.get("news") and not self.opt.skip_external and not self._gdelt_paused:
                     hits += news_prov.search(q["query"].replace('"', ""), max_results=25)
                     used.append("gdelt")
             except (BudgetExceeded, RuntimeError, ValueError) as exc:
                 self._err(f"gdelt:{q['query_id']}", exc)
+                if "HTTP 429" in str(exc):
+                    # GDELT throttles beyond its documented interval: stop calling it for this invocation
+                    # instead of collecting more 429s; news queries still go to the other search paths.
+                    self._gdelt_paused = True
+                    note = ("GDELT rate-limited this run (HTTP 429 after backoff); remaining news queries skipped "
+                            "GDELT. Re-run `resume` later to retry it.")
+                    if note not in self.limitations:
+                        self.limitations.append(note)
             for p in providers:
                 try:
                     hits += p.search(q["query"], max_results=self.depth_cfg["results_per_query"],
@@ -297,10 +306,36 @@ class ResearchRun:
                 seed_hits.append(SearchHit(url=s["url"], title=s.get("title", ""), snippet=s.get("snippet", ""),
                                            query=s.get("search_facet") or "", rank=0))
         self.candidates = candidate_entities(self.company, seed_hits, wikidata, supplied_urls=supplied)
+        rues_cands = self._rues_candidates()
+        self._rues_match = None
+        has_site = any("." in c["candidate"] and not c["candidate"].startswith(("wikidata:", "profile:", "nit:"))
+                       and c["identity_match_confidence"] >= 0.5 for c in self.candidates)
+        if rues_cands and has_site:
+            # The registry corroborates the entity but has no website: keep the site candidate as the identity
+            # and attach the record only when it is unambiguous (one exact match, or the supplied NIT).
+            strong = [c for c in rues_cands if "nit" in c["hint_matches"]] or                      ([rues_cands[0]] if len(rues_cands) == 1 else
+                      [c for c in rues_cands if self.company.city in c["hint_matches"]][:1]
+                      if sum(1 for c in rues_cands if self.company.city in c["hint_matches"]) == 1 else [])
+            self._rues_match = strong[0] if strong else None
+        elif rues_cands:
+            self.candidates = sorted(self.candidates + rues_cands, key=lambda c: -c["identity_match_confidence"])
         for c in self.candidates:
             if c["candidate"] in unreachable:
                 c["basis"].append("official root unreachable during this run (possibly a retired domain)")
         self.identity = decide_identity(self.candidates)
+        override = self.store.kv_get("identity_override")
+        if override:
+            # Founder-confirmed identity (confirm-identity) outranks any automatic decision.
+            chosen_o = (registrable_domain(host_of(override["official_url"])) if override.get("official_url")
+                        else override.get("candidate")
+                        or (f"nit:{str(override['nit']).split('-')[0].replace('.', '')}" if override.get("nit") else None)
+                        or self.identity.get("chosen"))
+            self.identity = {"status": "confirmed_by_founder", "chosen": chosen_o,
+                             "alternatives": [c["candidate"] for c in self.candidates if c["candidate"] != chosen_o][:6],
+                             "rationale": "Identity confirmed by a Cumbre founder"
+                                          + (f": {override['note']}" if override.get("note") else "."),
+                             "confirmed_fields": {k: v for k, v in override.items() if k not in ("note", "at") and v},
+                             "confirmed_at": override.get("at")}
         self.identity["supplied_official_urls"] = supplied
         chosen = self.identity.get("chosen")
         if chosen and chosen in unreachable:
@@ -341,11 +376,97 @@ class ResearchRun:
                     if sid:
                         self.store.update_source(sid, identity_match_status="candidate_alternative")
                         self.enqueue(f"https://{alt}/", 0, 1, "identity_alternative", external=True, prio=90)
+        self._apply_rues_identity()
         self.store.kv_set("identity", self.identity)
         self.store.kv_set("candidates", self.candidates)
         self.store.kv_set("company", self.company.to_dict())
         self.store.kv_set("phase_done:identity", True)
         self.store.commit()
+
+    # ------------------------------------------------------------------ RUES registry (Colombia)
+    def _rues_candidates(self) -> list[dict]:
+        """Registry candidates from the RUES open dataset: by NIT when known, else by exact legal name."""
+        if self.company.country != "CO" or self.opt.skip_external or "rues" not in self.providers:
+            return []
+        prov = self.providers["rues"]
+        nit = self.company.company_id
+        try:
+            rows = prov.lookup(nit=nit) if nit else prov.lookup(name=strip_legal(self.company.legal_name or self.company.name))
+        except (BudgetExceeded, RuntimeError, ValueError) as exc:
+            self._err("rues", exc)
+            return []
+        core = strip_legal(self.company.legal_name or self.company.name)
+        city = fold(self.company.city or "")
+        cands = []
+        for r in rows:
+            if not r.get("nit"):
+                continue
+            rs, sigla = r.get("razon_social") or "", r.get("sigla") or ""
+            exact = strip_legal(rs) == core or bool(sigla and strip_legal(sigla) == core)
+            if not nit and not exact:
+                continue  # BRISAS / BRISOL are other entities: never candidates for BRISA
+            conf = 0.97 if nit else 0.6
+            hints = ["nit"] if nit else []
+            if not nit and city and fold(r.get("camara_comercio") or "") == city:
+                conf += 0.25
+                hints.append(self.company.city)
+            if not nit and (r.get("estado_matricula") or "").upper() == "ACTIVA":
+                conf += 0.05
+            url = RuesProvider.record_url(r["nit"])
+            sid = self.register(url, "identity:rues", f"RUES: {rs} (NIT {r['nit']}-{r.get('digito_verificacion', '')})",
+                                f"Camara {r.get('camara_comercio')}; matricula {r.get('matricula')}; "
+                                f"{r.get('estado_matricula')}; CIIU {r.get('cod_ciiu_act_econ_pri')}")
+            if sid:
+                self.store.update_source(sid, source_type="official_registry",
+                                         reliability_score=reliability("official_registry")[0],
+                                         processing_status="extracted_structured_registry",
+                                         identity_match_status="confirmed" if nit else "probable")
+            cands.append({"candidate": f"nit:{r['nit']}", "label": rs[:80],
+                          "basis": [f"RUES registry record (Camara {r.get('camara_comercio')}, "
+                                    f"{r.get('estado_matricula')})"],
+                          "evidence_urls": [url], "identity_match_confidence": round(min(conf, 0.97), 2),
+                          "hint_matches": hints, "rues": r, "source_id": sid})
+        if not nit and len(cands) > 1:
+            for c in cands:  # several same-name registrations (e.g. in different chambers): none dominates alone
+                c["identity_match_confidence"] = min(c["identity_match_confidence"], 0.8)
+        return cands
+
+    def _apply_rues_identity(self) -> None:
+        """If the chosen identity is a RUES record, adopt its NIT/legal name and record structured claims."""
+        chosen = self.identity.get("chosen") or ""
+        cand = self._rues_match or next((c for c in self.candidates if c["candidate"] == chosen and c.get("rues")), None)
+        if not cand:
+            return
+        r, sid = cand["rues"], cand.get("source_id")
+        nit_full = f"{r['nit']}-{r.get('digito_verificacion', '')}".rstrip("-")
+        if not self.company.company_id:
+            self.company.company_id = nit_full
+        if not self.company.legal_name:
+            self.company.legal_name = r.get("razon_social")
+        if not sid:
+            return
+        status = "confirmed" if ("nit" in cand["hint_matches"] or (
+            self.identity.get("status") in CONFIRMED_IDENTITY and cand["candidate"] == chosen)) else "inferred"
+        self.identity["registry_record"] = {"candidate": cand["candidate"], "source_id": sid, "fact_status": status}
+        self._structured_claim("legal_name_variant", r.get("razon_social", ""),
+                               f"Registered legal name in RUES: {r.get('razon_social')}.", sid, status=status)
+        self._structured_claim("tax_id_nit", nit_full, f"NIT {nit_full} per the RUES registry record.", sid,
+                               status=status)
+        reg = (f"Matricula {r.get('matricula')} at the Camara de Comercio de {str(r.get('camara_comercio', '')).title()}, "
+               f"registered {r.get('fecha_matricula')}; status {r.get('estado_matricula')}; last renewed "
+               f"{r.get('ultimo_ano_renovado')}; legal form {r.get('organizacion_juridica')}.")
+        self._structured_claim("certification_or_registration", f"RUES {r.get('matricula')}", reg, sid,
+                               event_date=r.get("fecha_matricula"), status=status)
+        ciiu = ", ".join(x for x in [r.get("cod_ciiu_act_econ_pri"), r.get("cod_ciiu_act_econ_sec")] if x)
+        if ciiu:
+            self._structured_claim("economic_activity_ciiu", ciiu,
+                                   f"Registered economic activity (CIIU): primary {r.get('cod_ciiu_act_econ_pri')}"
+                                   + (f", secondary {r.get('cod_ciiu_act_econ_sec')}" if r.get("cod_ciiu_act_econ_sec") else "")
+                                   + ".", sid, status=status)
+        self.registry_extra["rues"] = {k: r.get(k) for k in (
+            "camara_comercio", "matricula", "razon_social", "nit", "digito_verificacion", "fecha_matricula",
+            "estado_matricula", "ultimo_ano_renovado", "cod_ciiu_act_econ_pri", "cod_ciiu_act_econ_sec",
+            "organizacion_juridica")}
 
     def check_official_reachability(self) -> bool:
         """After a wave: if an official root failed, mark it and request an identity re-check."""
@@ -620,7 +741,7 @@ class ResearchRun:
 
     def _identity_status(self, url: str, text: str, title: str) -> str:
         if self.company.is_official_url(url):
-            return "confirmed" if self.identity.get("status") in ("confirmed_by_hint", "dominant") else "provisional"
+            return "confirmed" if self.identity.get("status") in CONFIRMED_IDENTITY else "provisional"
         alt_domains = {a for a in self.identity.get("alternatives", []) if a != self.identity.get("chosen")}
         if registrable_domain(host_of(url)) in alt_domains and self.identity.get("status") == "ambiguous":
             return "candidate_alternative"
@@ -886,12 +1007,16 @@ class ResearchRun:
         wave_log = self.store.waves()
         if any(w["wave"] == wave for w in wave_log):
             wave += 1  # resuming after a completed wave
-        min_w, max_w = self.depth_cfg["min_waves"], self.depth_cfg["max_waves"]
+        min_w, base_max_w = self.depth_cfg["min_waves"], self.depth_cfg["max_waves"]
+        extra_w = int(self.store.kv_get("agent_extra_waves") or 0)
+        max_w = base_max_w + extra_w
         while True:
             w_start = time.monotonic()
             qstats = self.execute_queries(wave)
             stuck_on_dead_domain = self.identity.get("chosen") in set(self.store.kv_get("unreachable_domains") or [])
-            if (self.identity.get("status") in (None, "unresolved") or stuck_on_dead_domain)                     and self.store.kv_get("phase_done:identity"):
+            no_website_yet = str(self.identity.get("chosen") or "").startswith(("nit:", "profile:"))
+            if (self.identity.get("status") in (None, "unresolved", "tentative") or stuck_on_dead_domain
+                    or (no_website_yet and self.identity.get("status") != "confirmed_by_founder"))                     and self.store.kv_get("phase_done:identity"):
                 # new search evidence (e.g. agent-imported results) may now resolve identity
                 self.store.kv_set("phase_done:identity", False)
             self.phase_identity()
@@ -920,7 +1045,11 @@ class ResearchRun:
                 self.stop_reason = f"runtime budget reached (max_runtime_s={self.depth_cfg['max_runtime_s']})"
                 break
             if wave >= max_w:
-                self.stop_reason = f"maximum waves reached ({max_w})"
+                if extra_w:
+                    self.stop_reason = (f"maximum waves reached (max_waves={base_max_w} for depth {self.opt.depth}, "
+                                        f"plus {extra_w} wave(s) to process agent-search imports)")
+                else:
+                    self.stop_reason = f"maximum waves reached (max_waves={base_max_w})"
                 break
             # Phase G: gap-driven queries for the next wave
             executed = {q["query"].lower() for q in self.store.queries()}
@@ -1080,6 +1209,45 @@ class ResearchRun:
                 "errors": len(self.errors)}
 
 
+def confirm_identity(run_dir: Path, official_url: str | None = None, nit: str | None = None,
+                     legal_name: str | None = None, candidate: str | None = None, note: str | None = None) -> dict:
+    """Record a founder-confirmed identity in an existing run; the next `resume` uses it."""
+    if not any([official_url, nit, legal_name, candidate]):
+        raise ValueError("give at least one of --official-url, --nit, --legal-name, --candidate")
+    if nit:
+        ok, why = validate_nit(nit)
+        if not ok:
+            raise ValueError(f"invalid NIT {nit!r}: {why}")
+    store = Store(run_dir / "data" / "company_research.sqlite")
+    try:
+        if candidate:
+            known = {c["candidate"] for c in (store.kv_get("candidates") or [])}
+            if candidate not in known:
+                raise ValueError(f"unknown candidate {candidate!r}; known: {sorted(known) or 'none'}")
+        company = store.kv_get("company") or {}
+        if official_url:
+            official_url = official_url if official_url.startswith("http") else "https://" + official_url
+            supplied = list(dict.fromkeys((store.kv_get("supplied_official_urls") or []) + [official_url]))
+            store.kv_set("supplied_official_urls", supplied)
+            company["official_urls"] = list(dict.fromkeys((company.get("official_urls") or []) + [official_url]))
+        if nit:
+            company["company_id"] = nit
+        if legal_name:
+            company["legal_name"] = legal_name
+        store.kv_set("company", company)
+        override = {"official_url": official_url, "nit": nit, "legal_name": legal_name, "candidate": candidate,
+                    "note": note, "at": iso(utc_now())}
+        store.kv_set("identity_override", override)
+        store.kv_set("phase_done:identity", False)
+        for k in [r[0] for r in store.db.execute("SELECT k FROM kv WHERE k LIKE 'external_done:%'")]:
+            store.kv_set(k, False)  # re-run registry lookups (e.g. SECOP by NIT) with the confirmed data
+        store.commit()
+    finally:
+        store.close()
+    return {"run_dir": str(run_dir), "identity_override": override,
+            "next": "run `resume` to research with the confirmed identity"}
+
+
 def resume_run(run_dir: Path, config: dict, fetcher: Fetcher | None = None, overrides: dict | None = None) -> dict:
     manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8")) \
         if (run_dir / "run_manifest.json").is_file() else {}
@@ -1089,7 +1257,12 @@ def resume_run(run_dir: Path, config: dict, fetcher: Fetcher | None = None, over
     opts = Options(depth=manifest.get("depth", "deep"), mode=manifest.get("mode", "pre-meeting"), **(overrides or {}))
     root = run_dir.parent.parent.parent
     run = ResearchRun(company, config, opts, root, fetcher=fetcher, run_dir=run_dir)
-    # re-open waves after agent imports: allow one more wave beyond the saved one
+    # Agent imports (ingest-search) since the last resume earn one extra wave to process them. Extra waves are
+    # counted separately so the configured max_waves of the depth is reported unchanged.
     run.store.kv_set("wave", int(run.store.kv_get("wave") or 1))
-    run.depth_cfg["max_waves"] = max(run.depth_cfg["max_waves"], int(run.store.kv_get("wave") or 1) + 1)
+    search_imports = [i for i in (run.store.kv_get("agent_imports") or []) if i.get("kind") == "search"]
+    consumed = int(run.store.kv_get("agent_imports_consumed") or 0)
+    if len(search_imports) > consumed:
+        run.store.kv_set("agent_imports_consumed", len(search_imports))
+        run.store.kv_set("agent_extra_waves", int(run.store.kv_get("agent_extra_waves") or 0) + 1)
     return run.run()

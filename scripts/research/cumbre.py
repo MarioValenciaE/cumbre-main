@@ -4,6 +4,7 @@
   research   Research one or more companies (pre-meeting | post-meeting | refresh | targeted)
   resume     Continue a checkpointed run (e.g. after ingest-search)
   pending    Show queries waiting for the agent-search loop
+  confirm-identity Record a founder-confirmed entity (official URL / NIT / legal name / candidate)
   ingest-search    Import web-search results gathered by the operating agent
   ingest-findings  Import agent-reviewed claims/signals (validated against the registry)
   render     Rebuild reports from the stored evidence (no new fetching)
@@ -28,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cumbre_research.company import Company  # noqa: E402
 from cumbre_research.fetch import Fetcher  # noqa: E402
-from cumbre_research.pipeline import Options, ResearchRun, resume_run  # noqa: E402
+from cumbre_research.pipeline import Options, ResearchRun, confirm_identity, resume_run  # noqa: E402
 from cumbre_research.store import KitError, Store, clients_root  # noqa: E402
 from cumbre_research.util import load_config, load_structured_file  # noqa: E402
 
@@ -148,6 +149,18 @@ def cmd_resume(a) -> int:
     if a.allow_paid:
         overrides.update(allow_paid=True, provider_caps=_caps(a.provider_cap), max_spend=a.max_spend)
     _out(resume_run(Path(a.run_dir).resolve(), load_config(a.config), overrides=overrides), a.json)
+    return 0
+
+
+def cmd_confirm_identity(a) -> int:
+    try:
+        res = confirm_identity(Path(a.run_dir).resolve(), official_url=a.official_url, nit=a.nit,
+                               legal_name=a.legal_name, candidate=a.candidate, note=a.note)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    _out(res, a.json)
+    print("next: python scripts/research/cumbre.py resume", a.run_dir)
     return 0
 
 
@@ -319,6 +332,14 @@ def main(argv=None) -> int:
     p.add_argument("run_dir")
     add_budget_flags(p)
     p.set_defaults(func=cmd_resume)
+    p = sub.add_parser("confirm-identity", help="record a founder-confirmed identity, then resume")
+    p.add_argument("run_dir")
+    p.add_argument("--official-url")
+    p.add_argument("--nit")
+    p.add_argument("--legal-name")
+    p.add_argument("--candidate", help="a candidate key from company_identity.md, e.g. profile:brisa-s-a-s")
+    p.add_argument("--note", help="how it was confirmed (e.g. 'RUES lookup', 'client said so')")
+    p.set_defaults(func=cmd_confirm_identity)
     p = sub.add_parser("pending", help="queries awaiting agent search")
     p.add_argument("run_dir")
     p.set_defaults(func=cmd_pending)

@@ -8,6 +8,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
+from .planner import CONFIRMED_IDENTITY, UNCERTAIN_IDENTITY
 from .safety import safe_excerpt
 from .util import host_of, iso, parse_date, write_json
 
@@ -95,9 +96,9 @@ def overall_confidence(ctx: Ctx) -> tuple[str, str]:
     domains = {host_of(s["url"]) for s in processed}
     confirmed = sum(1 for c in ctx.claims if c.get("fact_status") == "confirmed")
     ident = ctx.identity.get("status")
-    if ident in ("confirmed_by_hint", "dominant") and len(processed) >= 30 and len(domains) >= 5 and confirmed >= 5:
+    if ident in CONFIRMED_IDENTITY and len(processed) >= 30 and len(domains) >= 5 and confirmed >= 5:
         level = "HIGH"
-    elif ident in ("confirmed_by_hint", "dominant", "provisional") and len(processed) >= 10:
+    elif ident in CONFIRMED_IDENTITY + ("provisional",) and len(processed) >= 10:
         level = "MEDIUM"
     elif len(processed) >= 3:
         level = "LOW"
@@ -390,6 +391,15 @@ def sec_social(ctx: Ctx) -> str:
 
 def sec_records_news(ctx: Ctx) -> str:
     out = ["## Public records and news\n"]
+    rues = ctx.extra.get("rues")
+    if rues:
+        out.append(f"- RUES registry (Confecámaras open data): {rues.get('razon_social')}, NIT {rues.get('nit')}-"
+                   f"{rues.get('digito_verificacion')}, Cámara {str(rues.get('camara_comercio', '')).title()}, matrícula "
+                   f"{rues.get('matricula')} registered {rues.get('fecha_matricula')}, {rues.get('estado_matricula')}, "
+                   f"last renewed {rues.get('ultimo_ano_renovado')}; CIIU {rues.get('cod_ciiu_act_econ_pri')}"
+                   + (f"/{rues['cod_ciiu_act_econ_sec']}" if rues.get("cod_ciiu_act_econ_sec") else "") + ".")
+    elif ctx.company.country == "CO":
+        out.append("- RUES registry: no record matched the exact name/NIT (not found ≠ not registered; check rues.org.co).")
     secop = ctx.extra.get("secop")
     if secop:
         out.append(f"- SECOP II query ({secop.get('dataset', '')}) by {secop.get('queried_by', '?')}: "
@@ -565,7 +575,7 @@ def render_brief(ctx: Ctx) -> str:
     for x in (ctx.extra.get("contradictions") or [])[:3]:
         L.append(f"- Caution: conflicting {x['claim_type']} values across sources ("
                  + ", ".join(f"`{i}`" for i in x["claim_ids"]) + "); confirm in the meeting.")
-    if ident in ("ambiguous", "provisional", "unresolved"):
+    if ident in UNCERTAIN_IDENTITY:
         L.append(f"- Caution: identity is {ident}; confirm legal entity and official domain at the start.")
     for h in ctx.hyps[:3]:
         L.append(f"- Talking point ({h['opp_id']}): {h['meeting_questions'][0]} — {ctx.cite(*h['source_ids'], limit=2)}")
@@ -597,7 +607,7 @@ def render_brief(ctx: Ctx) -> str:
 
 def discovery_question_list(ctx: Ctx) -> list[dict]:
     qs = []
-    if ctx.identity.get("status") in ("ambiguous", "provisional", "unresolved"):
+    if ctx.identity.get("status") in UNCERTAIN_IDENTITY:
         qs.append({"question": "Can you confirm the legal entity, NIT and official website we should associate with your company?",
                    "cite": "identity " + ctx.identity.get("status", ""), "reason": "Identity not fully established",
                    "function": "identity", "clarifies": "prevents mixing similar-name entities", "rank_score": 999})
@@ -703,7 +713,7 @@ def render_talking_points(ctx: Ctx) -> str:
         L.append(f"- **{h['opp_id']}** ({h['business_function']}): {opener} — {ctx.cite(*h['source_ids'], limit=2)}")
     L.append("\n## Caution / red flags\n")
     cautions = []
-    if ctx.identity.get("status") not in ("confirmed_by_hint", "dominant"):
+    if ctx.identity.get("status") not in CONFIRMED_IDENTITY:
         cautions.append(f"- Identity is {ctx.identity.get('status')}; confirm entity before referencing public facts.")
     for f in ctx.by_type("corporate_red_flag"):
         cautions.append(f"- {f.get('red_flag_type')} ({f.get('legal_posture')}): reported by a third party — do not raise "
@@ -773,7 +783,7 @@ def render_coverage(ctx: Ctx) -> str:
     target = ctx.run.depth_cfg["target_pages"]
     L = ["# Coverage report\n",
          f"Run `{ctx.run.run_id}` · {ctx.company.name} · depth **{ctx.run.opt.depth}** (target {target[0]}–{target[1]} relevant pages; "
-         "a target, not a quota) · mode {ctx.run.opt.mode}\n",
+         f"a target, not a quota) · mode {ctx.run.opt.mode}\n",
          f"**Stop reason:** {ctx.run.stop_reason or 'n/a'}\n",
          "Coverage is an estimate over researched categories, not a claim that all public information was found.\n",
          "## Counts (separate measures)\n",
@@ -849,7 +859,8 @@ def render_journal(ctx: Ctx) -> str:
 def render_gaps(ctx: Ctx) -> str:
     L = ["# Research gaps\n", "Not found ≠ does not exist.\n"]
     checks = [
-        ("Legal name / NIT", bool(ctx.by_type("legal_name_variant", "tax_id_nit"))),
+        ("Legal name", bool(ctx.by_type("legal_name_variant"))),
+        ("NIT / tax ID", bool(ctx.by_type("tax_id_nit"))),
         ("Founding date", bool(ctx.by_type("founding_year"))),
         ("Leadership roles", bool(ctx.by_type("leadership_role"))),
         ("Ownership classification", bool(ctx.by_type("ownership_indicator"))),

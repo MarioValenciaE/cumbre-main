@@ -636,5 +636,169 @@ class DiscoveryBridgeTests(unittest.TestCase):
         self.assertIn("external_research_allowed: false", res.stderr + res.stdout)
 
 
+class ShortNameRunRegressionTests(unittest.TestCase):
+    """Defects found in the 2026-11-20 live run on a short-name company with no website."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cumbre-short-"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, **opts):
+        cfg = sw.test_config()
+        c = Company(name="Ferretería Andina Demo", country="CO", city="Cali", official_urls=[sw.D])
+        opts = {"max_pages": 12, **opts}
+        return ResearchRun(c, cfg, Options(depth="standard", **opts), self.tmp,
+                           fetcher=sw.make_fetcher(cfg), clock=CLOCK), cfg
+
+    def test_mirror_and_scheme_variants_are_one_source(self):
+        a = canonical_url("https://www.emis.cn/php/company-profile/CO/X_en_1.html")
+        self.assertEqual(a, canonical_url("http://emis.com/php/company-profile/CO/X_en_1.html"))
+        self.assertEqual(a, canonical_url("https://emis.cn/php/company-profile/CO/X_en_1.html"))
+
+    def test_directory_profile_is_tentative_candidate_and_lookalikes_not_merged(self):
+        c = Company(name="Brisa", country="CO", city="Cali")
+        hits = [SearchHit(url="https://www.emis.cn/php/company-profile/CO/Brisa_SAS_en_1.html",
+                          title="Brisa S.A.S. Company Profile - Colombia", snippet="Cali", query="q", rank=1),
+                SearchHit(url="https://www.emis.cn/php/company-profile/CO/Brisas_Sas_en_2.html",
+                          title="Brisas Sas Company Profile - Colombia", snippet="", query="q", rank=2),
+                SearchHit(url="https://www.emis.com/php/company-profile/CO/Brisol_SAS_en_3.html",
+                          title="Brisol S.A.S. Company Profile - Colombia", snippet="", query="q", rank=3)]
+        cands = candidate_entities(c, hits, [])
+        self.assertEqual([x["candidate"] for x in cands], ["profile:brisa-s-a-s"])
+        ident = decide_identity(cands)
+        self.assertEqual(ident["status"], "tentative")
+        self.assertEqual(ident["chosen"], "profile:brisa-s-a-s")
+
+    def test_short_names_get_locality_in_queries(self):
+        from cumbre_research.planner import gap_queries, initial_queries
+        short = Company(name="Brisa", country="CO", city="Cali")
+        qs = [q["query"] for q in initial_queries(short, "standard", 40)]
+        self.assertTrue(all("Cali" in q or "Colombia" in q for q in qs), qs)
+        gq = [q["query"] for q in gap_queries(short, 2, {}, [], set(), 20)]
+        self.assertTrue(all("Cali" in q for q in gq), gq)
+        long_name = Company(name="Ferretería Andina Demo", country="CO", city="Cali")
+        self.assertIn("Ferretería Andina Demo productos", [q["query"] for q in initial_queries(long_name, "standard", 40)])
+
+    def test_reports_have_no_unformatted_fields_and_split_nit_gap(self):
+        run, _ = self._run()
+        s = run.run()
+        text = all_text(Path(s["run_dir"]))
+        self.assertNotIn("{ctx.", text)
+        gaps = (Path(s["run_dir"]) / "research_gaps.md").read_text(encoding="utf-8")
+        self.assertIn("| NIT / tax ID |", gaps)
+        self.assertNotIn("Legal name / NIT", gaps)
+
+    def test_agent_import_waves_do_not_change_configured_max(self):
+        from cumbre_research.pipeline import resume_run
+        run, cfg = self._run(max_pages=400)
+        s1 = run.run()
+        run.store.kv_set("agent_imports", [{"kind": "search", "file": "x.json"}])
+        run.store.close()
+        s2 = resume_run(Path(s1["run_dir"]), cfg, fetcher=sw.make_fetcher(cfg))
+        st = Store(Path(s1["run_dir"]) / "data" / "company_research.sqlite")
+        self.assertEqual(st.kv_get("agent_extra_waves"), 1)
+        st.close()
+        if s2["stop_reason"].startswith("maximum waves"):
+            self.assertIn("max_waves=2", s2["stop_reason"])
+            self.assertIn("agent-search imports", s2["stop_reason"])
+
+    def test_confirm_identity_overrides_automatic_decision(self):
+        from cumbre_research.pipeline import confirm_identity, resume_run
+        run, cfg = self._run()
+        s1 = run.run()
+        run.store.close()
+        with self.assertRaises(ValueError):
+            confirm_identity(Path(s1["run_dir"]))
+        confirm_identity(Path(s1["run_dir"]), nit="900000000-5", note="RUES lookup")
+        resume_run(Path(s1["run_dir"]), cfg, fetcher=sw.make_fetcher(cfg))
+        st = Store(Path(s1["run_dir"]) / "data" / "company_research.sqlite")
+        ident, company = st.kv_get("identity"), st.kv_get("company")
+        st.close()
+        self.assertEqual(ident["status"], "confirmed_by_founder")
+        self.assertEqual(company["company_id"], "900000000-5")
+        self.assertIn("RUES lookup", ident["rationale"])
+
+    def test_gdelt_429_pauses_gdelt_for_the_run(self):
+        run, _ = self._run()
+
+        class Throttled:
+            calls = 0
+
+            def search(self, *a, **k):
+                Throttled.calls += 1
+                raise RuntimeError("gdelt.doc failed: HTTP 429 Too Many Requests")
+
+        run.providers["gdelt"] = Throttled()
+        for i in range(4):
+            run.store.add_query({"query": f"demo noticias {i}", "facet": "news_media", "wave": 1, "origin": "test",
+                                 "news": True, "provider_hint": "search", "status": "planned"})
+        run.execute_queries(1)
+        self.assertEqual(Throttled.calls, 1)
+        self.assertTrue(any("GDELT rate-limited" in x for x in run.limitations))
+        run.store.close()
+
+
+class RuesRegistryTests(unittest.TestCase):
+    """RUES open-data registry (fictional rows served by synthetic_web)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cumbre-rues-"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _identity(self, company):
+        cfg = sw.test_config()
+        run = ResearchRun(company, cfg, Options(depth="standard", max_pages=5), self.tmp,
+                          fetcher=sw.make_fetcher(cfg), clock=CLOCK)
+        run.phase_identity()
+        return run
+
+    def test_nit_check_digit(self):
+        from cumbre_research.util import validate_nit
+        self.assertTrue(validate_nit("860025900-2")[0])
+        self.assertTrue(validate_nit("900123456-8")[0])
+        self.assertFalse(validate_nit("90012345-8")[0])   # a digit missing: wrong check digit
+        self.assertFalse(validate_nit("abc")[0])
+
+    def test_name_only_company_without_site_resolves_to_registry_record(self):
+        run = self._identity(Company(name="Ferretería Andina Demo", country="CO", city="Cali"))
+        self.assertEqual(run.identity["chosen"], "nit:900123456")
+        self.assertNotIn("nit:900765432", [c["candidate"] for c in run.candidates])  # DEMOLICIONES is another entity
+        self.assertEqual(run.company.company_id, "900123456-8")
+        nits = [c for c in run.store.claims() if c["claim_type"] == "tax_id_nit"]
+        self.assertEqual([c["value"] for c in nits], ["900123456-8"])
+        src = run.store.source(nits[0]["supporting_source_ids"][0])
+        self.assertEqual(src["source_type"], "official_registry")
+        run.store.close()
+
+    def test_site_candidate_stays_identity_and_registry_corroborates(self):
+        run = self._identity(Company(name="Ferretería Andina Demo", country="CO", city="Cali", official_urls=[sw.D]))
+        self.assertEqual(run.identity["status"], "confirmed_by_hint")
+        self.assertFalse(str(run.identity["chosen"]).startswith("nit:"))
+        self.assertEqual(run.identity["registry_record"]["candidate"], "nit:900123456")
+        run.store.close()
+
+    def test_supplied_nit_confirms_identity(self):
+        run = self._identity(Company(name="Ferretería Andina Demo", country="CO", city="Cali", company_id="900123456-8"))
+        self.assertEqual(run.identity["status"], "confirmed_by_hint")
+        self.assertEqual(run.identity["chosen"], "nit:900123456")
+        run.store.close()
+
+    def test_confirm_identity_rejects_invalid_nit(self):
+        from cumbre_research.pipeline import confirm_identity
+        with self.assertRaises(ValueError):
+            confirm_identity(self.tmp, nit="90012345-8")
+
+    def test_registry_query_never_requests_personal_fields(self):
+        from cumbre_research.providers import RuesProvider
+        for f in ("representante_legal", "num_identificacion_representante_legal", "primer_nombre", "primer_apellido",
+                  "numero_identificacion"):
+            self.assertNotIn(f, RuesProvider.FIELDS.split(","))
+        self.assertIn("PERSONA NATURAL", RuesProvider.LEGAL_ONLY)
+
+
 if __name__ == "__main__":
     unittest.main()

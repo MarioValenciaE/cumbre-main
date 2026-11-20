@@ -88,7 +88,8 @@
     "wayback": 1.5,
     "rdap": 1.0,
     "wikidata": 1.0,
-    "secop": 1.0
+    "secop": 1.0,
+    "rues": 1.0
   },
   "score_weights": {
     "relevance": 0.35,

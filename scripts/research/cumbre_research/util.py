@@ -20,6 +20,8 @@ TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id",
     "gclid", "fbclid", "msclkid", "mc_cid", "mc_eid", "_ga", "igshid", "ref", "ref_src",
 }
+# Country mirrors that serve the same page under another domain (duplicate control only).
+MIRROR_HOSTS = {"emis.cn": "emis.com", "emis.co": "emis.com"}
 
 
 def utc_now() -> dt.datetime:
@@ -63,9 +65,12 @@ def canonical_url(url: str) -> str:
     except ValueError:
         return url.strip()
     scheme = (parts.scheme or "http").lower()
+    if scheme == "http":
+        scheme = "https"  # http/https variants of one page are one source
     host = (parts.hostname or "").lower().rstrip(".")
     if host.startswith("www."):
         host = host[4:]
+    host = MIRROR_HOSTS.get(host, host)
     port = parts.port
     netloc = host if port in (None, 80, 443) else f"{host}:{port}"
     path = re.sub(r"/{2,}", "/", parts.path or "/")
@@ -74,6 +79,29 @@ def canonical_url(url: str) -> str:
     query = urlencode(sorted((k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
                              if k.lower() not in TRACKING_PARAMS))
     return urlunsplit((scheme, netloc, path, query, ""))
+
+
+def nit_check_digit(base: str) -> int:
+    """DIAN check digit (dígito de verificación) for a Colombian NIT base number."""
+    weights = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71]
+    digits = [int(c) for c in reversed(base)]
+    total = sum(d * w for d, w in zip(digits, weights))
+    r = total % 11
+    return r if r < 2 else 11 - r
+
+
+def validate_nit(nit: str) -> tuple[bool, str]:
+    """Check a 'base-DV' NIT. Returns (ok, reason). A NIT without DV is accepted if the base looks valid."""
+    raw = str(nit).strip().replace(".", "").replace(" ", "")
+    base, _, dv = raw.partition("-")
+    if not base.isdigit() or not 6 <= len(base) <= 10:
+        return False, f"NIT base must be 6-10 digits (got {base!r})"
+    if dv:
+        if not dv.isdigit() or int(dv) != nit_check_digit(base):
+            return False, f"check digit {dv!r} does not match {nit_check_digit(base)} for base {base}"
+    if len(base) == 9 and base[0] in "89":
+        return True, "ok"
+    return True, "ok (legal-entity NITs usually have 9 digits starting with 8 or 9; verify)"
 
 
 def host_of(url: str) -> str:
