@@ -300,3 +300,23 @@ def decide_identity(candidates: list[dict], margin: float = 0.15) -> dict:
             "rationale": "Several plausible entities with similar confidence (possibly related entities, e.g. a company "
                          "and its foundation). The top candidate is researched provisionally; alternatives are kept "
                          "separate for identity only. Confirm the entity before relying on the dossier."}
+
+
+def candidate_handles(company: Company, limit: int = 12) -> list[str]:
+    """Likely social handles for a human to check in the app. Nothing is fetched: Instagram's robots.txt
+    disallows all generic crawlers and TikTok's disallows AI agents, so the engine never probes them."""
+    names = [company.legal_name or company.name, company.name] + list(company.aliases or [])
+    cores = []
+    for n in names:
+        toks = [t for t in re.findall(r"[a-z0-9]+", fold(strip_legal(n or ""))) if t]
+        if toks:
+            cores += ["".join(toks)] + (["_".join(toks), ".".join(toks)] if len(toks) > 1 else [])
+    cores = list(dict.fromkeys(c for c in cores if 2 < len(c) <= 28))
+    city = re.sub(r"[^a-z0-9]", "", fold(company.city or ""))
+    out = []
+    for c in cores[:2]:
+        out += [c, f"{c}_sas", f"{c}sas", f"{c}.sas"]
+        if city:
+            out += [f"{c}_{city}", f"{c}{city}"]
+        out += [f"{c}.co", f"{c}_co", f"{c}col", f"{c}.oficial", f"{c}_oficial", f"{c}oficial"]
+    return list(dict.fromkeys(out))[:limit]

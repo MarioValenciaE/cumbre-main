@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .hypotheses import TEMPLATES
 from .providers import SearchHit
 from .safety import find_secrets, safe_excerpt
 from .store import Store
@@ -80,6 +81,10 @@ def validate_findings(items: list[dict], store: Store) -> tuple[list[dict], list
         blob = json.dumps(it, ensure_ascii=False)
         if find_secrets(blob):
             errors.append(f"item {i}: contains secret-like content; rejected")
+            continue
+        if t == "signal" and it.get("business_function", "other") not in TEMPLATES:
+            errors.append(f"item {i}: business_function must be one of {sorted(TEMPLATES)} "
+                          "(unknown values produce a generic hypothesis)")
             continue
         if t == "claim" and it.get("fact_status", "inferred") not in CLAIM_STATUSES:
             errors.append(f"item {i}: invalid fact_status")

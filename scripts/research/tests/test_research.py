@@ -819,6 +819,17 @@ class RuesRegistryTests(unittest.TestCase):
         self.assertEqual(res["identity_override"]["nit"], "900123456-8")
         self.assertEqual(res["identity_override"]["note"], "screenshot")
 
+    def test_agent_signal_needs_catalog_business_function(self):
+        from cumbre_research.agent_io import validate_findings
+
+        class _S:
+            def source(self, sid): return {"source_id": sid}
+
+        bad = [{"type": "signal", "business_function": "sales_marketing", "source_ids": ["SRC-1"]}]
+        good = [{"type": "signal", "business_function": "sales channels / ordering", "source_ids": ["SRC-1"]}]
+        self.assertEqual(len(validate_findings(bad, _S())[1]), 1)
+        self.assertEqual(validate_findings(good, _S()), (good, []))
+
     def test_registry_query_never_requests_personal_fields(self):
         from cumbre_research.providers import RuesProvider
         for f in ("representante_legal", "num_identificacion_representante_legal", "primer_nombre", "primer_apellido",
@@ -859,6 +870,31 @@ class OverallConfidenceTests(unittest.TestCase):
         ctx = self._Ctx(["legal_name_variant", "tax_id_nit", "founding_year", "leadership_role", "ownership_indicator",
                          "employee_count_statement", "offering_or_topic", "news_mention"], social=True)
         self.assertEqual(overall_confidence(ctx)[0], "HIGH")
+
+
+class SocialHandleAndFounderAskTests(unittest.TestCase):
+    def test_candidate_handles_cover_common_patterns(self):
+        from cumbre_research.planner import candidate_handles
+        hs = candidate_handles(Company(name="Brisa", legal_name="BRISA S.A.S.", country="CO", city="Cali"))
+        for h in ("brisa", "brisa_sas", "brisasas", "brisa.sas", "brisa_cali"):
+            self.assertIn(h, hs)
+        self.assertLessEqual(len(hs), 12)
+        multi = candidate_handles(Company(name="Ferretería Andina Demo", country="CO"))
+        self.assertIn("ferreteriaandinademo", multi)
+        self.assertIn("ferreteria_andina_demo", multi)
+
+    def test_founder_asks_for_socials_and_nit_when_no_site(self):
+        from cumbre_research.reports import founder_asks
+
+        class _C:
+            company = Company(name="Brisa", country="CO", city="Cali")
+            identity = {"status": "unresolved"}
+            def obs_kind(self, k): return []
+            def by_type(self, *t): return []
+
+        asks = founder_asks(_C())
+        self.assertEqual([a["topic"] for a in asks], ["social_profiles", "nit", "identity"])
+        self.assertIn("@brisa_sas", asks[0]["hint"])
 
 
 if __name__ == "__main__":

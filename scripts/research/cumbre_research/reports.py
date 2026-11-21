@@ -8,7 +8,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from .planner import CONFIRMED_IDENTITY, UNCERTAIN_IDENTITY
+from .planner import CONFIRMED_IDENTITY, UNCERTAIN_IDENTITY, candidate_handles
 from .safety import safe_excerpt
 from .util import host_of, iso, parse_date, write_json
 
@@ -187,7 +187,7 @@ def ranked_offers(ctx: Ctx) -> list[dict]:
 
 def timeline_rows(ctx: Ctx) -> list[tuple[str, list[str]]]:
     rows = []
-    for cl in ctx.by_type("founding_year", "domain_registered", "earliest_archive_capture", "public_contract",
+    for cl in ctx.by_type("founding_year", "certification_or_registration", "domain_registered", "earliest_archive_capture", "public_contract",
                           "mna_report", "funding_report", "news_mention", "years_in_business_claim"):
         ev = cl.get("event_date")
         if cl["claim_type"] == "news_mention":
@@ -502,6 +502,33 @@ SECTIONS = [
 # Brief, catalogs, questions, handoff
 # ---------------------------------------------------------------------------
 
+def founder_asks(ctx: Ctx) -> list[dict]:
+    """The few questions to the founder that would fill the biggest gaps (most useful first, max 3)."""
+    c, asks = ctx.company, []
+    has_site = bool(c.official_domains)
+    has_social = bool(ctx.obs_kind("social_profile"))
+    if not has_site and not has_social:
+        handles = candidate_handles(c)[:6]
+        asks.append({"topic": "social_profiles",
+                     "question": "Do they have Instagram, TikTok or Facebook? (no website was found, and small "
+                                 "accounts are rarely indexed by search engines)",
+                     "hint": "Quick check in the app: " + ", ".join("@" + h for h in handles) if handles else "",
+                     "record_with": "confirm-identity <run_dir> --social-url URL"})
+    elif not has_social:
+        asks.append({"topic": "social_profiles", "question": "Do they have Instagram, TikTok or Facebook accounts?",
+                     "hint": "", "record_with": "confirm-identity <run_dir> --social-url URL"})
+    if not has_site and c.country == "CO" and not ctx.by_type("tax_id_nit"):
+        asks.append({"topic": "nit", "question": "Do you have their NIT or RUT? (it unlocks the RUES registry and SECOP)",
+                     "hint": "", "record_with": "confirm-identity <run_dir> --nit NIT-DV"})
+    if ctx.identity.get("status") in UNCERTAIN_IDENTITY:
+        asks.append({"topic": "identity", "question": "Which of the candidate entities is the company? (see company_identity.md)",
+                     "hint": "", "record_with": "confirm-identity <run_dir> --official-url U | --nit N | --candidate KEY"})
+    if not has_site and not ctx.by_type("offering_or_topic"):
+        asks.append({"topic": "offering", "question": "What do they sell, and to whom (consumers, shops, distributors)?",
+                     "hint": "", "record_with": "add to the meeting notes; facts with a source go in via ingest-findings"})
+    return asks[:3]
+
+
 def _ymd(value) -> str:
     v = str(value or "")
     return f"{v[:4]}-{v[4:6]}-{v[6:8]}" if len(v) == 8 and v.isdigit() else v[:10]
@@ -607,6 +634,13 @@ def render_brief(ctx: Ctx) -> str:
                           o["classification"], "medium — linked from official site ") if o["classification"].startswith("official")
                                                           else "low ") + ctx.cite(*o["source_ids"], limit=1)])
     L.append(md_table(["Platform", "Official profile", "Public activity indicators", "Last verified activity", "Confidence"], srows[:12]))
+    if not srows:
+        handles = candidate_handles(c)[:8]
+        if handles:
+            L.append("_Instagram/TikTok are not crawled (Instagram's robots.txt disallows crawlers; small accounts are "
+                     "rarely indexed). Likely handles to check by hand in the app: "
+                     + ", ".join(f"@{h}" for h in handles) + ". Record a match with "
+                     "`confirm-identity <run_dir> --social-url URL`._\n")
     L.append("## 7. Publicly reported incidents and exposure observations\n")
     if ctx.incidents:
         L.append(md_table(["Finding", "Date", "Source", "Relevance / stated severity", "Verification status"],
@@ -633,6 +667,11 @@ def render_brief(ctx: Ctx) -> str:
     L.append("\n## 9. Priority questions for the meeting\n")
     qs = discovery_question_list(ctx)[:7]
     L += [f"{i}. {q['question']} — {q['cite']}" for i, q in enumerate(qs, 1)] or ["1. Confirm legal entity, offering and main channels (no signals found)."]
+    asks = founder_asks(ctx)
+    if asks:
+        L.append("\n### Ask the founder first (fills the biggest gaps)\n")
+        L += [f"- {a['question']}" + (f" {a['hint']}." if a.get("hint") else "") + f" Record with `{a['record_with']}`."
+              for a in asks]
     L.append("\n## 10. Sources and retrieval dates\n")
     cited = sorted(ctx.cited)
     L.append(md_table(["ID", "Title / publisher", "Type", "Published (basis)", "Archive capture", "Retrieved (UTC)"],
@@ -990,6 +1029,7 @@ def render_all(run_dir: Path, run, correlation: list[dict] | None = None) -> lis
     write("MEETING_TALKING_POINTS.md", render_talking_points(ctx))
     write("discovery_context_handoff.md", render_handoff(ctx))
     write("research_gaps.md", render_gaps(ctx))
+    write_json(run_dir / "data" / "founder_asks.json", founder_asks(ctx))
     write("research_journal.md", render_journal(ctx))
     ctx.cited = set()
     write("EXECUTIVE_BRIEF.md", render_brief(ctx))

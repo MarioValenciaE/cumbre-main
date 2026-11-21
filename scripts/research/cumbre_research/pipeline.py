@@ -459,7 +459,10 @@ class ResearchRun:
         cand = self._rues_match or next((c for c in self.candidates if c["candidate"] == chosen and c.get("rues")), None)
         if not cand:
             return
-        r, sid = cand["rues"], cand.get("source_id")
+        r, sid = dict(cand["rues"]), cand.get("source_id")
+        fm = str(r.get("fecha_matricula") or "")
+        if len(fm) == 8 and fm.isdigit():  # RUES gives YYYYMMDD; store ISO so timelines sort and read correctly
+            r["fecha_matricula"] = f"{fm[:4]}-{fm[4:6]}-{fm[6:]}"
         nit_full = f"{r['nit']}-{r.get('digito_verificacion', '')}".rstrip("-")
         if not self.company.company_id:
             self.company.company_id = nit_full
@@ -1229,7 +1232,14 @@ class ResearchRun:
                 "claims": len(self.store.claims()), "signals": len(self.store.signals()),
                 "incidents": len(self.store.incidents()),
                 "pending_agent_queries": len(self.store.queries("NOT_EXECUTED_NO_PROVIDER")),
+                "founder_asks": self._founder_asks(),
                 "errors": len(self.errors)}
+
+    def _founder_asks(self) -> list[str]:
+        try:
+            return [a["question"] for a in json.loads((self.run_dir / "data" / "founder_asks.json").read_text(encoding="utf-8"))]
+        except (OSError, ValueError, KeyError, TypeError):
+            return []
 
 
 def confirm_identity(run_dir: Path, official_url: str | None = None, nit: str | None = None,

@@ -16,7 +16,7 @@ python scripts/research/cumbre.py research "Empresa ABC" --mode targeted --focus
 python scripts/research/cumbre.py demo --out <scratch folder>   # synthetic end-to-end run, no network
 ```
 
-Other commands: `resume`, `pending`, `confirm-identity` (record a founder-confirmed official URL / NIT / legal name / candidate / `--social-url` profile, then `resume`; later confirmations merge with earlier ones. Founder-supplied social profiles are recorded, not fetched: Instagram/TikTok need login and small accounts are rarely indexed), `ingest-search`, `ingest-findings`, `render`, `lint`, `query`, `diff`, `migrate`. Add `--json` anywhere for machine output. Budget flags: `--max-spend --max-search-queries --max-pages --max-depth --max-runtime --max-llm-tokens --max-concurrency --provider-cap name=N --allow-paid`.
+Other commands: `resume`, `pending`, `confirm-identity` (record a founder-confirmed official URL / NIT / legal name / candidate / `--social-url` profile, then `resume`; later confirmations merge with earlier ones. Founder-supplied social profiles are recorded, not fetched: Instagram/TikTok need login and small accounts are rarely indexed. The engine never probes those platforms (Instagram's robots.txt disallows all crawlers); when no profile is found the brief lists likely handles to check by hand, and an "Ask the founder first" block (also `founder_asks` in the `--json` summary) names the questions that would fill the biggest gaps), `ingest-search`, `ingest-findings`, `render`, `lint`, `query`, `diff`, `migrate`. Add `--json` anywhere for machine output. Budget flags: `--max-spend --max-search-queries --max-pages --max-depth --max-runtime --max-llm-tokens --max-concurrency --provider-cap name=N --allow-paid`.
 
 ## How a run works
 
@@ -106,4 +106,18 @@ Authorized public-company test: `research "Alpina" --country CO --industry láct
 - Rule-based extraction is Spanish/English keyword driven; recall on unusual sites is limited and some headings are navigation noise. The agent review step and founder review remain necessary.
 - Without a search API, breadth depends on the agent-search loop; unexecuted queries are always listed.
 - JavaScript-rendered sites yield little through direct HTTP; Firecrawl (if approved) is the fallback.
-- Social metrics, LinkedIn, Google Business Profile and Colombian company registries are not automated.
+- Social metrics, LinkedIn and Google Business Profile are not automated. Instagram and TikTok are never crawled (Instagram's robots.txt disallows all crawlers; TikTok's disallows AI agents), so small companies' social accounts depend on the founder intake and the handle checklist in the brief.
+- Colombian registries: RUES is automated through open data; Supersociedades financial filings and DIAN RUT status are not.
+
+## Pending work
+
+### Instagram Business Discovery (Meta Graph API) — not started, needs founder setup
+
+Goal: find and confirm a prospect's Instagram professional account without crawling, and collect public metadata (name, bio, website, followers, media count, recent captions and dates).
+
+- How: `GET /<CUMBRE_IG_USER_ID>?fields=business_discovery.username(<handle>){...}`, tried in order over the handles that `candidate_handles()` already generates; accept a profile only if its name or bio matches the company (and the city or registered address, for `confirmed`). New provider `instagram_business_discovery`; without a token the engine behaves exactly as today.
+- Founder setup (the founders must create these; the agent must not): an Instagram professional account for Cumbre, a linked Facebook Page (Facebook Login variant), a Meta developer app with `instagram_basic` + `pages_read_engagement` (or `instagram_business_basic` with Instagram Login), and an access token in `.env` (never committed; standard tokens last about 60 days, Page tokens can be non-expiring). Prefer a company-owned admin account plus a second admin.
+- Cost: $0 (no per-call fee). Rate limit is generous (Meta's changelog cites 1,000 discovery queries per user per hour; a run needs about 12).
+- Open risks to check in the first trial: whether Development mode works without App Review for app-role users (Meta requires review to access data you do not own; review needs a privacy policy, demo video and possibly business verification, and can take weeks); it only works for professional (business/creator) accounts and exact usernames; data use must follow Meta's Platform Terms and stay in `clients/`.
+- TikTok has no equivalent public API (its Research API is for academic use), so TikTok stays founder-supplied.
+

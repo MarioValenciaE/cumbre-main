@@ -10,10 +10,11 @@ This skill only orchestrates. The rules live in [`docs/research/README.md`](../.
 
 ## 1. Plan
 
-1. Collect inputs: name (required), country/city, official URL, NIT, aliases, industry, focus. Several companies → repeat `--company` or write a `companies.yaml` (see `scripts/research/examples/companies.example.yaml`). Ask only if two plausible companies share the name and nothing distinguishes them.
-2. Default depth is `deep`. Use `exhaustive` only when the user asks; tell them it can take hours.
-3. `python scripts/research/cumbre.py providers` — note which providers are available. Never set `--allow-paid` or provider caps unless the user explicitly approved paid usage in this conversation.
-4. For `exhaustive` or paid runs, first run with `--dry-run` and show the estimate.
+1. Intake: before the first run for a new prospect, ask the founder **once**, in one short message, for whatever they already know (all optional, "no sé" is a valid answer): city; NIT or RUT (a RUT PDF works; read only the NIT, legal name and city, and never store or repeat personal data in it); website; Instagram/TikTok/Facebook handles; what the company sells and to whom; how the founders met them. Map the answers to `--city`, `--nit`, `--legal-name`, `--official-url`, `--social-url`, `--industry`/`--product-keyword`. Skip the intake if the request already gives these or the user says to just run. These are the inputs the engine cannot reliably find alone: small companies often have no website, Instagram's robots.txt disallows crawlers, and search engines rarely index small social accounts.
+2. Collect the rest: aliases, focus. Several companies → repeat `--company` or write a `companies.yaml` (see `scripts/research/examples/companies.example.yaml`). Ask again only if two plausible companies share the name and nothing distinguishes them.
+3. Default depth is `deep`. Use `exhaustive` only when the user asks; tell them it can take hours.
+4. `python scripts/research/cumbre.py providers` — note which providers are available. Never set `--allow-paid` or provider caps unless the user explicitly approved paid usage in this conversation.
+5. For `exhaustive` or paid runs, first run with `--dry-run` and show the estimate.
 
 ## 2. Run
 
@@ -39,7 +40,7 @@ Read `EXECUTIVE_BRIEF.md`, `OPPORTUNITY_SIGNAL_CATALOG.md`, `research_gaps.md` a
 
 If identity is `tentative`, `ambiguous` or `unresolved` and the founder confirms the entity (or you find its NIT/website in an official registry), record it with `confirm-identity <run_dir> [--official-url U] [--nit N] [--legal-name L] [--candidate KEY] --note "how confirmed"`, then `resume`. Never confirm identity from your own inference alone.
 
-If the company has no website, ask the founder for its Instagram/TikTok/Facebook handle early: these platforms require login and search engines rarely index small accounts, so the engine usually cannot find them alone. Record them with `confirm-identity <run_dir> --social-url URL` (repeatable; merges with earlier confirmations). They are registered as founder-supplied profiles, never fetched; facts read from a founder screenshot go in via `ingest-findings`, citing that source.
+If no social profile was found, the brief lists likely handles (e.g. `@name_sas`) to check by hand in the app; the engine never probes Instagram or TikTok (Instagram's robots.txt disallows all crawlers; TikTok's disallows AI agents), and neither should you. Record them with `confirm-identity <run_dir> --social-url URL` (repeatable; merges with earlier confirmations). They are registered as founder-supplied profiles, never fetched; facts read from a founder screenshot go in via `ingest-findings`, citing that source.
 
 ## 5. Quality gate and handoff
 
@@ -49,4 +50,4 @@ If the company has no website, ask the founder for its Instagram/TikTok/Facebook
 
 ## 6. Boundaries
 
-Passive public research only: no logins, no probing, no port/directory scanning, no paste-site or leaked-data searches, no CAPTCHA/robots bypass. Outputs stay in `clients/` (git-ignored) or `$CUMBRE_CLIENTS_DIR`. Never commit, push, publish or send research. Report: run folder, sources discovered/processed, stop reason, top 3 questions, incidents found or the no-hit statement, unexecuted queries and missing providers.
+Passive public research only: no logins, no probing, no port/directory scanning, no paste-site or leaked-data searches, no CAPTCHA/robots bypass. Outputs stay in `clients/` (git-ignored) or `$CUMBRE_CLIENTS_DIR`. Never commit, push, publish or send research. Report: run folder, sources discovered/processed, stop reason, top 3 questions, incidents found or the no-hit statement, unexecuted queries and missing providers. End the report with the run's `founder_asks` (in the `--json` summary and the brief's "Ask the founder first" block), if any: those are the questions that would most improve the research, so put them to the user and, with the answers, run `confirm-identity` and `resume`.
