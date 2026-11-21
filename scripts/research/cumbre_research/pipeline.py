@@ -377,6 +377,7 @@ class ResearchRun:
                         self.store.update_source(sid, identity_match_status="candidate_alternative")
                         self.enqueue(f"https://{alt}/", 0, 1, "identity_alternative", external=True, prio=90)
         self._apply_rues_identity()
+        self._register_supplied_social()
         self.store.kv_set("identity", self.identity)
         self.store.kv_set("candidates", self.candidates)
         self.store.kv_set("company", self.company.to_dict())
@@ -431,6 +432,27 @@ class ResearchRun:
                 c["identity_match_confidence"] = min(c["identity_match_confidence"], 0.8)
         return cands
 
+    def _register_supplied_social(self) -> None:
+        """Founder-supplied social profiles: recorded as official sources and profiles, never fetched
+        (Instagram/TikTok/Facebook require login, and search engines rarely index small accounts)."""
+        for url in self.company.social_urls or []:
+            url = url if url.startswith("http") else "https://" + url
+            plat = social_platform(url)
+            if not plat:
+                continue
+            sid = self.register(url, "founder:social_url", f"{plat} profile supplied by the founder")
+            if not sid:
+                continue
+            self.store.update_source(sid, source_type="first_party_social", identity_match_status="confirmed",
+                                     processing_status="restricted_login_wall",
+                                     exclusion_reason="Supplied by the founder; the platform requires login, "
+                                                      "so content and counts were not collected.")
+            self.store.upsert_observation("social_profile", f"{plat}|{canonical_url(url)}", {
+                "platform": plat, "url": url, "classification": "official_supplied_by_founder",
+                "affiliation_evidence": "founder", "source_ids": [sid], "followers": "UNKNOWN",
+                "last_verified_activity": "UNKNOWN",
+                "access_note": "Supplied by the founder; counts/activity not collected (login wall)."})
+
     def _apply_rues_identity(self) -> None:
         """If the chosen identity is a RUES record, adopt its NIT/legal name and record structured claims."""
         chosen = self.identity.get("chosen") or ""
@@ -457,6 +479,7 @@ class ResearchRun:
                f"{r.get('ultimo_ano_renovado')}; legal form {r.get('organizacion_juridica')}.")
         self._structured_claim("certification_or_registration", f"RUES {r.get('matricula')}", reg, sid,
                                event_date=r.get("fecha_matricula"), status=status)
+        self.store.update_source(sid, retrieved_at_utc=iso(self.clock()))
         ciiu = ", ".join(x for x in [r.get("cod_ciiu_act_econ_pri"), r.get("cod_ciiu_act_econ_sec")] if x)
         if ciiu:
             self._structured_claim("economic_activity_ciiu", ciiu,
@@ -1210,10 +1233,14 @@ class ResearchRun:
 
 
 def confirm_identity(run_dir: Path, official_url: str | None = None, nit: str | None = None,
-                     legal_name: str | None = None, candidate: str | None = None, note: str | None = None) -> dict:
+                     legal_name: str | None = None, candidate: str | None = None, note: str | None = None,
+                     social_urls: list[str] | None = None) -> dict:
     """Record a founder-confirmed identity in an existing run; the next `resume` uses it."""
-    if not any([official_url, nit, legal_name, candidate]):
-        raise ValueError("give at least one of --official-url, --nit, --legal-name, --candidate")
+    if not any([official_url, nit, legal_name, candidate, social_urls]):
+        raise ValueError("give at least one of --official-url, --nit, --legal-name, --candidate, --social-url")
+    for u in social_urls or []:
+        if not social_platform(u if u.startswith("http") else "https://" + u):
+            raise ValueError(f"not a recognized social profile URL: {u!r}")
     if nit:
         ok, why = validate_nit(nit)
         if not ok:
@@ -1234,9 +1261,17 @@ def confirm_identity(run_dir: Path, official_url: str | None = None, nit: str | 
             company["company_id"] = nit
         if legal_name:
             company["legal_name"] = legal_name
+        if social_urls:
+            company["social_urls"] = list(dict.fromkeys((company.get("social_urls") or []) + list(social_urls)))
         store.kv_set("company", company)
         override = {"official_url": official_url, "nit": nit, "legal_name": legal_name, "candidate": candidate,
-                    "note": note, "at": iso(utc_now())}
+                    "social_urls": social_urls or [], "note": note, "at": iso(utc_now())}
+        prev = store.kv_get("identity_override") or {}
+        for k, v in prev.items():  # a later confirmation adds to an earlier one; it never erases it
+            if k == "social_urls":
+                override[k] = list(dict.fromkeys((v or []) + override[k]))
+            elif override.get(k) in (None, "") and k != "at":
+                override[k] = v
         store.kv_set("identity_override", override)
         store.kv_set("phase_done:identity", False)
         for k in [r[0] for r in store.db.execute("SELECT k FROM kv WHERE k LIKE 'external_done:%'")]:

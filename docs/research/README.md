@@ -16,7 +16,7 @@ python scripts/research/cumbre.py research "Empresa ABC" --mode targeted --focus
 python scripts/research/cumbre.py demo --out <scratch folder>   # synthetic end-to-end run, no network
 ```
 
-Other commands: `resume`, `pending`, `confirm-identity` (record a founder-confirmed official URL / NIT / legal name / candidate, then `resume`), `ingest-search`, `ingest-findings`, `render`, `lint`, `query`, `diff`, `migrate`. Add `--json` anywhere for machine output. Budget flags: `--max-spend --max-search-queries --max-pages --max-depth --max-runtime --max-llm-tokens --max-concurrency --provider-cap name=N --allow-paid`.
+Other commands: `resume`, `pending`, `confirm-identity` (record a founder-confirmed official URL / NIT / legal name / candidate / `--social-url` profile, then `resume`; later confirmations merge with earlier ones. Founder-supplied social profiles are recorded, not fetched: Instagram/TikTok need login and small accounts are rarely indexed), `ingest-search`, `ingest-findings`, `render`, `lint`, `query`, `diff`, `migrate`. Add `--json` anywhere for machine output. Budget flags: `--max-spend --max-search-queries --max-pages --max-depth --max-runtime --max-llm-tokens --max-concurrency --provider-cap name=N --allow-paid`.
 
 ## How a run works
 

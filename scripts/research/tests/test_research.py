@@ -772,6 +772,7 @@ class RuesRegistryTests(unittest.TestCase):
         self.assertEqual([c["value"] for c in nits], ["900123456-8"])
         src = run.store.source(nits[0]["supporting_source_ids"][0])
         self.assertEqual(src["source_type"], "official_registry")
+        self.assertTrue(src.get("retrieved_at_utc"))
         run.store.close()
 
     def test_site_candidate_stays_identity_and_registry_corroborates(self):
@@ -792,12 +793,72 @@ class RuesRegistryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             confirm_identity(self.tmp, nit="90012345-8")
 
+    def test_founder_supplied_social_profile_is_recorded_not_fetched(self):
+        company = Company(name="Ferretería Andina Demo", country="CO", city="Cali",
+                          social_urls=["https://www.instagram.com/ferreteria_andina_demo/"])
+        run = self._identity(company)
+        obs = run.store.observations("social_profile")
+        self.assertEqual([o["classification"] for o in obs], ["official_supplied_by_founder"])
+        src = run.store.source(obs[0]["source_ids"][0])
+        self.assertEqual(src["processing_status"], "restricted_login_wall")
+        self.assertEqual(src["source_type"], "first_party_social")
+        run.store.close()
+
+    def test_confirm_identity_rejects_non_social_url(self):
+        from cumbre_research.pipeline import confirm_identity
+        with self.assertRaises(ValueError):
+            confirm_identity(self.tmp, social_urls=["https://example.com/about"])
+
+    def test_second_confirmation_keeps_earlier_nit(self):
+        from cumbre_research.pipeline import confirm_identity
+        from cumbre_research.store import Store
+        (self.tmp / "data").mkdir(parents=True, exist_ok=True)
+        Store(self.tmp / "data" / "company_research.sqlite").close()
+        confirm_identity(self.tmp, nit="900123456-8", note="registry")
+        res = confirm_identity(self.tmp, social_urls=["https://www.instagram.com/demo_sas/"], note="screenshot")
+        self.assertEqual(res["identity_override"]["nit"], "900123456-8")
+        self.assertEqual(res["identity_override"]["note"], "screenshot")
+
     def test_registry_query_never_requests_personal_fields(self):
         from cumbre_research.providers import RuesProvider
         for f in ("representante_legal", "num_identificacion_representante_legal", "primer_nombre", "primer_apellido",
                   "numero_identificacion"):
             self.assertNotIn(f, RuesProvider.FIELDS.split(","))
         self.assertIn("PERSONA NATURAL", RuesProvider.LEGAL_ONLY)
+
+
+class OverallConfidenceTests(unittest.TestCase):
+    """A confirmed identity with many sources but an empty profile must not read as HIGH."""
+
+    class _Ctx:
+        def __init__(self, claim_types, social=False):
+            self.identity = {"status": "confirmed_by_founder"}
+            self.claims = [{"claim_type": t, "fact_status": "confirmed"} for t in claim_types]
+            self.signals = []
+            self._social = social
+            self._processed = [{"url": f"https://h{i % 6}.example/p{i}"} for i in range(40)]
+
+        def processed(self):
+            return self._processed
+
+        def by_type(self, *types):
+            return [c for c in self.claims if c["claim_type"] in types]
+
+        def obs_kind(self, kind):
+            return [{"kind": kind}] if kind == "social_profile" and self._social else []
+
+    def test_identity_only_profile_is_low(self):
+        from cumbre_research.reports import overall_confidence
+        ctx = self._Ctx(["legal_name_variant", "tax_id_nit"] * 3 + ["founding_year", "employee_count_statement"])
+        level, why = overall_confidence(ctx)
+        self.assertEqual(level, "LOW")
+        self.assertIn("profile coverage 2/11", why)
+
+    def test_well_covered_profile_is_high(self):
+        from cumbre_research.reports import overall_confidence
+        ctx = self._Ctx(["legal_name_variant", "tax_id_nit", "founding_year", "leadership_role", "ownership_indicator",
+                         "employee_count_statement", "offering_or_topic", "news_mention"], social=True)
+        self.assertEqual(overall_confidence(ctx)[0], "HIGH")
 
 
 if __name__ == "__main__":

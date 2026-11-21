@@ -155,7 +155,8 @@ def cmd_resume(a) -> int:
 def cmd_confirm_identity(a) -> int:
     try:
         res = confirm_identity(Path(a.run_dir).resolve(), official_url=a.official_url, nit=a.nit,
-                               legal_name=a.legal_name, candidate=a.candidate, note=a.note)
+                               legal_name=a.legal_name, candidate=a.candidate, note=a.note,
+                               social_urls=a.social_url)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -338,6 +339,8 @@ def main(argv=None) -> int:
     p.add_argument("--nit")
     p.add_argument("--legal-name")
     p.add_argument("--candidate", help="a candidate key from company_identity.md, e.g. profile:brisa-s-a-s")
+    p.add_argument("--social-url", action="append",
+                   help="founder-supplied social profile (repeatable); recorded, not fetched (login walls)")
     p.add_argument("--note", help="how it was confirmed (e.g. 'RUES lookup', 'client said so')")
     p.set_defaults(func=cmd_confirm_identity)
     p = sub.add_parser("pending", help="queries awaiting agent search")

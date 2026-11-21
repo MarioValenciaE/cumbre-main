@@ -91,20 +91,48 @@ def md_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(out) + "\n"
 
 
+IDENTITY_TOPICS = ("Legal name", "NIT / tax ID")
+
+
+def coverage_checks(ctx: Ctx) -> list[tuple[str, bool]]:
+    """Topic checklist shared by the gaps report and the overall confidence level."""
+    return [
+        ("Legal name", bool(ctx.by_type("legal_name_variant"))),
+        ("NIT / tax ID", bool(ctx.by_type("tax_id_nit"))),
+        ("Founding date", bool(ctx.by_type("founding_year")) or bool((ctx.extra.get("rues") or {}).get("fecha_matricula"))),
+        ("Leadership roles", bool(ctx.by_type("leadership_role"))),
+        ("Ownership classification", bool(ctx.by_type("ownership_indicator"))),
+        ("Company size", bool(ctx.by_type("employee_count_statement"))),
+        ("Products/services", bool(ctx.by_type("offering_or_topic"))),
+        ("News coverage", bool(ctx.by_type("news_mention"))),
+        ("Hiring signals", any(s["signal_type"] in ("tech_hiring", "manual_admin_hiring") for s in ctx.signals)),
+        ("Reviews / complaints", any(s["signal_type"] == "customer_complaints" for s in ctx.signals)),
+        ("Public contracts", bool(ctx.by_type("public_contract"))),
+        ("Social profiles", bool(ctx.obs_kind("social_profile"))),
+        ("Competitors", False),
+    ]
+
+
 def overall_confidence(ctx: Ctx) -> tuple[str, str]:
+    """Evidence level = identity certainty AND source volume AND profile coverage.
+    A confirmed identity with an empty profile must not read as HIGH."""
     processed = ctx.processed()
     domains = {host_of(s["url"]) for s in processed}
     confirmed = sum(1 for c in ctx.claims if c.get("fact_status") == "confirmed")
     ident = ctx.identity.get("status")
-    if ident in CONFIRMED_IDENTITY and len(processed) >= 30 and len(domains) >= 5 and confirmed >= 5:
+    profile = [ok for t, ok in coverage_checks(ctx) if t not in IDENTITY_TOPICS]
+    found, total = sum(profile), len(profile)
+    cov = found / total if total else 0.0
+    if ident in CONFIRMED_IDENTITY and len(processed) >= 30 and len(domains) >= 5 and confirmed >= 5 and cov >= 0.5:
         level = "HIGH"
-    elif ident in CONFIRMED_IDENTITY + ("provisional",) and len(processed) >= 10:
+    elif ident in CONFIRMED_IDENTITY + ("provisional",) and len(processed) >= 10 and cov >= 0.25:
         level = "MEDIUM"
     elif len(processed) >= 3:
         level = "LOW"
     else:
         level = "INSUFFICIENT"
     why = (f"Coverage-and-evidence quality, not a probability of legitimacy: identity {ident}; "
+           f"profile coverage {found}/{total} topics (see research_gaps.md); "
            f"{len(processed)} processed sources across {len(domains)} hosts; {confirmed} confirmed claims.")
     return level, why
 
@@ -474,6 +502,15 @@ SECTIONS = [
 # Brief, catalogs, questions, handoff
 # ---------------------------------------------------------------------------
 
+def _ymd(value) -> str:
+    v = str(value or "")
+    return f"{v[:4]}-{v[4:6]}-{v[6:8]}" if len(v) == 8 and v.isdigit() else v[:10]
+
+
+def _ciiu(rues: dict) -> str:
+    return "/".join(x for x in (rues.get("cod_ciiu_act_econ_pri"), rues.get("cod_ciiu_act_econ_sec")) if x)
+
+
 def render_brief(ctx: Ctx) -> str:
     c = ctx.company
     level, why = overall_confidence(ctx)
@@ -493,15 +530,22 @@ def render_brief(ctx: Ctx) -> str:
         off = [s for s in ctx.processed() if c.is_official_url(s["url"])]
         bullets.append(f"- Identity: {ident}; no legal name/NIT found publicly in sources checked "
                        f"({ctx.cite(off[0]['source_id']) if off else 'no official page processed'}).")
+    rues = ctx.extra.get("rues")
+    rues_claim = next(iter(ctx.by_type("certification_or_registration")), None)
+    if rues:
+        bullets.append(f"- Registry (RUES): matrícula {rues.get('matricula')}, Cámara "
+                       f"{str(rues.get('camara_comercio', '')).title()}, registered {_ymd(rues.get('fecha_matricula'))}, "
+                       f"{rues.get('estado_matricula')}, last renewed {rues.get('ultimo_ano_renovado')}; "
+                       f"CIIU {_ciiu(rues)}" + (f" ({ctx.ccite(rues_claim, 1)})" if rues_claim else "") + ".")
     offers = ranked_offers(ctx)[:4]
     if offers:
         bullets.append("- Advertises: " + "; ".join(safe_excerpt(str(o["value"]), 40) for o in offers) +
                        f" ({ctx.cite(*{s for o in offers for s in o['supporting_source_ids']}, limit=2)}).")
-    founding = ctx.by_type("founding_year")
+    founding = sorted(ctx.by_type("founding_year"), key=lambda f: f.get("fact_status") != "confirmed")
     if len({f["value"] for f in founding}) > 1:
         bullets.append("- Founding year conflicts across sources: " + "; ".join(
             f"{f['value']} ({ctx.ccite(f, 1)})" for f in founding[:3]) + " — confirm.")
-    elif founding:
+    elif founding and not (rues and str(founding[0]["value"]) == str(rues.get("fecha_matricula") or "")[:4]):
         bullets.append(f"- Founded (stated): {founding[0]['value']} — {founding[0].get('fact_status')} ({ctx.ccite(founding[0], 2)}).")
     sites = ctx.by_type("site_count_statement", "employee_count_statement")
     if sites:
@@ -516,6 +560,10 @@ def render_brief(ctx: Ctx) -> str:
         L += [f"- {safe_excerpt(str(o['value']), 90)} — {ctx.ccite(o, 1)}" for o in ranked_offers(ctx)[:8]]
     else:
         L.append("- Not established from processed official pages (UNKNOWN).")
+    if rues and _ciiu(rues):
+        L.append(f"- Registered economic activity (CIIU, RUES): {_ciiu(rues)}"
+                 + (f" ({ctx.ccite(rues_claim, 1)})" if rues_claim else "")
+                 + ". Registered codes describe the legal object, not necessarily current operations.")
     chans = sorted({s["signal_type"] for s in ctx.signals if s["signal_type"] in
                     ("ecommerce_present", "whatsapp_ordering", "quote_request", "b2b_portal", "wholesale_distribution")})
     if chans:
@@ -555,7 +603,8 @@ def render_brief(ctx: Ctx) -> str:
             continue
         seen.add(k)
         srows.append([o["platform"], f"<{o['url']}>" if o["classification"].startswith("official") else f"unverified: <{o['url']}>",
-                      "UNKNOWN (not collected)", "UNKNOWN", ("medium — linked from official site " if o["classification"].startswith("official")
+                      "UNKNOWN (not collected)", "UNKNOWN", ({"official_supplied_by_founder": "medium — supplied by the founder "}.get(
+                          o["classification"], "medium — linked from official site ") if o["classification"].startswith("official")
                                                           else "low ") + ctx.cite(*o["source_ids"], limit=1)])
     L.append(md_table(["Platform", "Official profile", "Public activity indicators", "Last verified activity", "Confidence"], srows[:12]))
     L.append("## 7. Publicly reported incidents and exposure observations\n")
@@ -828,7 +877,8 @@ def render_coverage(ctx: Ctx) -> str:
          "## Notable omissions and limitations\n"]
     L += [f"- {x}" for x in ctx.run.limitations] or ["- None recorded."]
     L.append("- Social metrics, Google Business Profile and LinkedIn data: NOT_CHECKED_PROVIDER_RESTRICTED unless fetched above.")
-    L.append("- Colombian registries (RUES, Supersociedades): not automated (no verified open API); check manually.")
+    L.append("- Colombian registries: RUES is queried through the Confecámaras open dataset (datos.gov.co); "
+             "Supersociedades financial filings and DIAN RUT status are not automated; check manually.")
     return "\n".join(L) + "\n"
 
 
@@ -858,21 +908,7 @@ def render_journal(ctx: Ctx) -> str:
 
 def render_gaps(ctx: Ctx) -> str:
     L = ["# Research gaps\n", "Not found ≠ does not exist.\n"]
-    checks = [
-        ("Legal name", bool(ctx.by_type("legal_name_variant"))),
-        ("NIT / tax ID", bool(ctx.by_type("tax_id_nit"))),
-        ("Founding date", bool(ctx.by_type("founding_year"))),
-        ("Leadership roles", bool(ctx.by_type("leadership_role"))),
-        ("Ownership classification", bool(ctx.by_type("ownership_indicator"))),
-        ("Company size", bool(ctx.by_type("employee_count_statement"))),
-        ("Products/services", bool(ctx.by_type("offering_or_topic"))),
-        ("News coverage", bool(ctx.by_type("news_mention"))),
-        ("Hiring signals", any(s["signal_type"] in ("tech_hiring", "manual_admin_hiring") for s in ctx.signals)),
-        ("Reviews / complaints", any(s["signal_type"] == "customer_complaints" for s in ctx.signals)),
-        ("Public contracts", bool(ctx.by_type("public_contract"))),
-        ("Social profiles", bool(ctx.obs_kind("social_profile"))),
-        ("Competitors", False),
-    ]
+    checks = coverage_checks(ctx)
     L.append(md_table(["Topic", "Status"], [[t, "found (see dossier)" if ok else "NOT FOUND in sources checked"] for t, ok in checks]))
     pend = ctx.run.store.queries("NOT_EXECUTED_NO_PROVIDER")
     if pend:

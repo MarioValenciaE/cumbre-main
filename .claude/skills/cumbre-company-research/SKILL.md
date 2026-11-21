@@ -39,6 +39,8 @@ Read `EXECUTIVE_BRIEF.md`, `OPPORTUNITY_SIGNAL_CATALOG.md`, `research_gaps.md` a
 
 If identity is `tentative`, `ambiguous` or `unresolved` and the founder confirms the entity (or you find its NIT/website in an official registry), record it with `confirm-identity <run_dir> [--official-url U] [--nit N] [--legal-name L] [--candidate KEY] --note "how confirmed"`, then `resume`. Never confirm identity from your own inference alone.
 
+If the company has no website, ask the founder for its Instagram/TikTok/Facebook handle early: these platforms require login and search engines rarely index small accounts, so the engine usually cannot find them alone. Record them with `confirm-identity <run_dir> --social-url URL` (repeatable; merges with earlier confirmations). They are registered as founder-supplied profiles, never fetched; facts read from a founder screenshot go in via `ingest-findings`, citing that source.
+
 ## 5. Quality gate and handoff
 
 1. `python scripts/research/cumbre.py lint <run_dir>` — fix every ERROR (re-render with `render <run_dir>`).
